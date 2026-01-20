@@ -67,65 +67,53 @@ class NavigationMapGenerator:
             features['boxes'].append({'center': [x, y], 'size': size})
             
         return features
-
-class AStarPlanner:
-    """A*路径规划器"""
-    def __init__(self, grid_map, resolution):
-        self.grid_map = grid_map
-        self.resolution = resolution
-        self.height, self.width = grid_map.shape
+class SimpleRobotController:
+    """简单机器人控制器 - 直接定点移动"""
+    def __init__(self, robot_id, target_points, kp=0.5, max_velocity=1.0):
+        self.robot_id = robot_id
+        self.target_points = target_points  # 目标点列表 [[x1,y1], [x2,y2], ...]
+        self.kp = kp      # 比例增益
+        self.max_velocity = max_velocity  # 最大速度
+        self.current_target_index = 0     # 当前目标点索引
+        self.goal_threshold = 0.5         # 到达目标的距离阈值（米）
         
-    def heuristic(self, a, b):
-        """曼哈顿距离启发函数"""
-        return abs(a[0] - b[0]) + abs(a[1] - b[1])
-    
-    def get_neighbors(self, node):
-        """获取相邻节点"""
-        x, y = node
-        neighbors = []
-        for dx, dy in [(0,1), (1,0), (0,-1), (-1,0), (1,1), (-1,1), (1,-1), (-1,-1)]:
-            nx, ny = x + dx, y + dy
-            if 0 <= nx < self.width and 0 <= ny < self.height:
-                if self.grid_map[ny, nx] == 0:  # 非障碍物
-                    neighbors.append((nx, ny))
-        return neighbors
-    
-    def plan(self, start, goal):
-        """A*路径规划"""
-        start = (int(start[0]/self.resolution), int(start[1]/self.resolution))
-        goal = (int(goal[0]/self.resolution), int(goal[1]/self.resolution))
+    def compute_velocity(self):
+        """计算直接移动到当前目标点的速度指令"""
+        if not self.target_points or self.current_target_index >= len(self.target_points):
+            return None
         
-        open_set = []
-        heapq.heappush(open_set, (0, start))
-        came_from = {}
-        g_score = {start: 0}
-        f_score = {start: self.heuristic(start, goal)}
+        # 获取当前目标点
+        target = self.target_points[self.current_target_index]
         
-        open_set_hash = {start}
+        # 获取机器人当前位置
+        current_pos, _ = p.getBasePositionAndOrientation(self.robot_id)
+        current_x, current_y = current_pos[0], current_pos[1]
         
-        while open_set:
-            current = heapq.heappop(open_set)[1]
-            open_set_hash.remove(current)
-            
-            if current == goal:
-                path = []
-                while current in came_from:
-                    path.append((current[0]*self.resolution, current[1]*self.resolution))
-                    current = came_from[current]
-                return path[::-1]
-            
-            for neighbor in self.get_neighbors(current):
-                tentative_g_score = g_score[current] + 1
-                
-                if neighbor not in g_score or tentative_g_score < g_score[neighbor]:
-                    came_from[neighbor] = current
-                    g_score[neighbor] = tentative_g_score
-                    f_score[neighbor] = tentative_g_score + self.heuristic(neighbor, goal)
-                    if neighbor not in open_set_hash:
-                        heapq.heappush(open_set, (f_score[neighbor], neighbor))
-                        open_set_hash.add(neighbor)
+        # 计算到目标的距离和方向
+        dx = target[0] - current_x
+        dy = target[1] - current_y
+        distance = math.sqrt(dx*dx + dy*dy)
         
-        return None  # 无路径
+        # 检查是否到达当前目标点
+        if distance < self.goal_threshold:
+            print(f"✓ 到达目标点 {self.current_target_index}: ({target[0]:.1f}, {target[1]:.1f})")
+            self.current_target_index += 1
+            if self.current_target_index >= len(self.target_points):
+                print("✓ 已完成所有目标点导航！")
+                return None
+            return self.compute_velocity()  # 计算下一个目标点的速度
+        
+        # 计算速度指令（简化的比例控制）
+        velocity = min(self.kp * distance, self.max_velocity)
+        
+        # 计算方向角度
+        angle = math.atan2(dy, dx)
+        
+        # 将速度分解为左右轮速度（差分驱动）
+        left_velocity = velocity * (1 + 0.5 * math.sin(angle))
+        right_velocity = velocity * (1 - 0.5 * math.sin(angle))
+        
+        return [left_velocity, right_velocity]
 
 class NavigationVisualizer:
     """增强版导航可视化器"""
@@ -256,6 +244,130 @@ class NavigationVisualizer:
                            interval=100, cache_frame_data=False)
         plt.tight_layout()
         plt.show()
+    
+    def save_trajectory_plot(self, filename="trajectory_plot.png", dpi=300, output_dir="./results"):
+        """保存轨迹图为高清图片
+        
+        Args:
+            filename: 保存的文件名（默认：trajectory_plot.png）
+            dpi: 图片分辨率（默认：300 DPI）
+            output_dir: 自定义输出目录（默认：./results）
+        """
+        import os
+        
+        # 自动创建输出目录
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # 构建完整保存路径
+        filepath = os.path.join(output_dir, filename)
+        
+        # 创建新的保存用图形
+        save_fig, save_ax = plt.subplots(figsize=(12, 10))
+        
+        # 绘制背景地图
+        if self.grid_map is not None:
+            save_ax.imshow(self.grid_map, cmap='Greys', 
+                         extent=[0, self.grid_map.shape[1]*self.resolution, 
+                                0, self.grid_map.shape[0]*self.resolution],
+                         origin='lower', alpha=0.2)
+        
+        # 绘制机器人轨迹
+        if len(self.robot_positions) > 1:
+            path = np.array(self.robot_positions)
+            save_ax.plot(path[:, 0], path[:, 1], 'b-', linewidth=4, 
+                       label='实际轨迹', alpha=0.8)
+        
+        # 绘制机器人起点和终点
+        if self.robot_positions:
+            start_pos = self.robot_positions[0]
+            end_pos = self.robot_positions[-1]
+            save_ax.plot(start_pos[0], start_pos[1], 'go', markersize=15, 
+                       label='起点', markeredgecolor='black', markeredgewidth=2)
+            save_ax.plot(end_pos[0], end_pos[1], 'ro', markersize=15, 
+                       label='终点', markeredgecolor='black', markeredgewidth=2)
+        
+        # 绘制规划路径
+        if self.planned_path:
+            path_array = np.array(self.planned_path)
+            save_ax.plot(path_array[:, 0], path_array[:, 1], 'g--', 
+                       linewidth=3, label='规划路径', alpha=0.7)
+        
+        # 绘制障碍物轨迹
+        for i, obs_id in enumerate(self.obstacles_ids):
+            if self.obstacle_trajectories[obs_id]:
+                obs_path = np.array(self.obstacle_trajectories[obs_id])
+                if len(obs_path) > 1:
+                    save_ax.plot(obs_path[:, 0], obs_path[:, 1], 'r:', 
+                               linewidth=2, alpha=0.6, label=f'障碍物{i}轨迹')
+                
+                # 绘制障碍物最终位置
+                final_pos = self.obstacle_trajectories[obs_id][-1]
+                save_ax.plot(final_pos[0], final_pos[1], 'rs', markersize=12, 
+                           markeredgecolor='black')
+        
+        # 设置图形属性
+        save_ax.set_xlabel('X坐标 (米)', fontsize=12)
+        save_ax.set_ylabel('Y坐标 (米)', fontsize=12)
+        save_ax.set_title('机器人导航轨迹图', fontsize=14, fontweight='bold')
+        save_ax.grid(True, alpha=0.3)
+        save_ax.legend(loc='upper left', fontsize=10)
+        save_ax.set_aspect('equal')
+        
+        # 自动调整视野范围
+        all_points = []
+        if self.robot_positions:
+            all_points.extend(self.robot_positions)
+        for traj in self.obstacle_trajectories.values():
+            if traj:
+                all_points.extend(traj)
+        
+        if all_points:
+            all_array = np.array(all_points)
+            x_min, x_max = all_array[:, 0].min(), all_array[:, 0].max()
+            y_min, y_max = all_array[:, 1].min(), all_array[:, 1].max()
+            margin = max((x_max-x_min), (y_max-y_min)) * 0.2
+            save_ax.set_xlim(x_min-margin, x_max+margin)
+            save_ax.set_ylim(y_min-margin, y_max+margin)
+        
+        # 保存图片
+        plt.tight_layout()
+        save_fig.savefig(filepath, dpi=dpi, bbox_inches='tight', 
+                       facecolor='white', edgecolor='none')
+        plt.close(save_fig)
+        print(f"✓ 轨迹图已保存为: {filepath} (分辨率: {dpi} DPI)")
+    
+    def save_animation_gif(self, filename="trajectory_animation.gif", fps=10, output_dir="./results"):
+        """保存轨迹动画为GIF
+        
+        Args:
+            filename: 保存的动画文件名（默认：trajectory_animation.gif）
+            fps: 帧率（默认：10 FPS）
+            output_dir: 自定义输出目录（默认：./results）
+        """
+        import os
+        
+        # 自动创建输出目录
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # 构建完整保存路径
+        filepath = os.path.join(output_dir, filename)
+        
+        try:
+            from matplotlib.animation import PillowWriter
+            
+            # 创建动画
+            anim = FuncAnimation(self.fig, self.update_visualization, 
+                               frames=100, interval=100, cache_frame_data=False)
+            
+            # 保存为GIF
+            writer = PillowWriter(fps=fps)
+            anim.save(filepath, writer=writer, dpi=150)
+            print(f"✓ 轨迹动画已保存为: {filepath}")
+            
+        except ImportError:
+            print("⚠️  需要安装Pillow库: pip install pillow")
+        except Exception as e:
+            print(f"❌ 保存动画失败: {e}")
 
 def create_simulation_environment():
     """创建仿真环境"""
@@ -276,13 +388,13 @@ def create_simulation_environment():
     # 静态障碍物
     for i in range(5):
         pos = [np.random.uniform(-8, 8), np.random.uniform(-8, 8), 0.5]
-        obstacle_id = p.loadURDF("sphere_small.urdf", pos)
+        obstacle_id = p.loadURDF("sphere2.urdf", pos)
         obstacles.append(obstacle_id)
     
     # 动态障碍物
     for i in range(3):
         pos = [np.random.uniform(-6, 6), np.random.uniform(-6, 6), 0.5]
-        obstacle_id = p.loadURDF("cube_small.urdf", pos)
+        obstacle_id = p.loadURDF("cube.urdf", pos)
         obstacles.append(obstacle_id)
     
     return robot_id, obstacles
@@ -292,22 +404,27 @@ def main():
     # 创建仿真环境
     robot_id, obstacles = create_simulation_environment()
     
-    # 生成地图
-    map_generator = NavigationMapGenerator(width=20, height=20, resolution=0.5)
+    # 生成地图 - 修改这里来调整地图大小
+    # 推荐尺寸：小型实验 20x20, 中型场景 50x50, 大型场景 100x100
+    MAP_WIDTH = 50      # 地图宽度（米）
+    MAP_HEIGHT = 50     # 地图高度（米）
+    MAP_RESOLUTION = 0.5  # 栅格分辨率（米/格子）
+    
+    map_generator = NavigationMapGenerator(width=MAP_WIDTH, height=MAP_HEIGHT, resolution=MAP_RESOLUTION)
     grid_map = map_generator.generate_grid_map(obstacle_density=0.15)
     
     # 创建可视化器
-    visualizer = NavigationVisualizer(robot_id, obstacles, grid_map)
+    visualizer = NavigationVisualizer(robot_id, obstacles, grid_map, resolution=MAP_RESOLUTION)
+    # 设置目标点序列 - 直接定点移动
+    target_points = [
+        [10, 10],    # 第一个目标点
+        [30, 15],    # 第二个目标点  
+        [40, 40],    # 第三个目标点
+        [15, 35]     # 第四个目标点
+    ]
     
-    # 路径规划示例
-    planner = AStarPlanner(grid_map, 0.5)
-    start_pos = [0, 0]
-    goal_pos = [15, 15]
-    planned_path = planner.plan(start_pos, goal_pos)
-    
-    if planned_path:
-        visualizer.set_planned_path(planned_path)
-        print(f"规划路径找到，长度: {len(planned_path)}个点")
+    # 创建控制器 - 直接定点移动
+    robot_controller = SimpleRobotController(robot_id, target_points, kp=0.8, max_velocity=1.2)
     
     # 启动可视化线程
     import threading
@@ -317,8 +434,27 @@ def main():
     
     # 主仿真循环
     try:
-        for i in range(2000):
+        for i in range(5000):
             p.stepSimulation()
+            
+            # 控制机器人直接移动到目标点
+            velocity_cmd = robot_controller.compute_velocity()
+            if velocity_cmd:
+                # 设置机器人速度 [左轮速度, 右轮速度]
+                p.setJointMotorControlArray(
+                    robot_id,
+                    jointIndices=range(2),  # 控制左右轮
+                    controlMode=p.VELOCITY_CONTROL,
+                    targetVelocities=[velocity_cmd[0], velocity_cmd[1]]
+                )
+            else:
+                # 已到达所有目标点，停止运动
+                p.setJointMotorControlArray(
+                    robot_id,
+                    jointIndices=range(2),
+                    controlMode=p.VELOCITY_CONTROL,
+                    targetVelocities=[0, 0]
+                )
             
             # 移动动态障碍物（后3个为动态障碍物）
             for j in range(len(obstacles)-3, len(obstacles)):
@@ -332,7 +468,17 @@ def main():
                 
                 p.resetBasePositionAndOrientation(obs_id, new_pos, current_orn)
             
-            time.sleep(1./240.)
+            # 检查是否完成所有目标点
+            if robot_controller.current_target_index >= len(target_points):
+                print("✓ 已完成所有目标点导航任务！")
+                break
+            
+            time.sleep(1./120.)
+        
+        # 保存轨迹图
+        visualizer.save_trajectory_plot("论文用图.png", dpi=600, output_dir="paper/Pic")
+        visualizer.save_animation_gif("完整动画.gif", fps=5, output_dir="paper/Gif")
+
             
     except KeyboardInterrupt:
         print("仿真被用户中断")
@@ -396,4 +542,5 @@ def load_trajectory_data(filename="trajectory_data.npz"):
     return data['positions'], data['timestamp']
 
 if __name__ == "__main__":
+
     main()
