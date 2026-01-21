@@ -243,7 +243,7 @@ class NavigationVisualizer:
         anim = FuncAnimation(self.fig, self.update_visualization, 
                            interval=100, cache_frame_data=False)
         plt.tight_layout()
-        plt.show()
+        plt.show(block=False)  # 非阻塞显示，避免主线程卡住
     
     def save_trajectory_plot(self, filename="trajectory_plot.png", dpi=300, output_dir="./results"):
         """保存轨迹图为高清图片
@@ -292,15 +292,18 @@ class NavigationVisualizer:
             save_ax.plot(path_array[:, 0], path_array[:, 1], 'g--', 
                        linewidth=3, label='规划路径', alpha=0.7)
         
-        # 绘制障碍物轨迹
+        # 绘制障碍物轨迹 - 区分静态和动态障碍物
+        dynamic_obs_count = 0
         for i, obs_id in enumerate(self.obstacles_ids):
             if self.obstacle_trajectories[obs_id]:
                 obs_path = np.array(self.obstacle_trajectories[obs_id])
+                
+                # 绘制所有障碍物轨迹（只要轨迹点数量 > 1）
                 if len(obs_path) > 1:
                     save_ax.plot(obs_path[:, 0], obs_path[:, 1], 'r:', 
                                linewidth=2, alpha=0.6, label=f'障碍物{i}轨迹')
                 
-                # 绘制障碍物最终位置
+                # 绘制所有障碍物的最终位置
                 final_pos = self.obstacle_trajectories[obs_id][-1]
                 save_ax.plot(final_pos[0], final_pos[1], 'rs', markersize=12, 
                            markeredgecolor='black')
@@ -310,7 +313,17 @@ class NavigationVisualizer:
         save_ax.set_ylabel('Y坐标 (米)', fontsize=12)
         save_ax.set_title('机器人导航轨迹图', fontsize=14, fontweight='bold')
         save_ax.grid(True, alpha=0.3)
-        save_ax.legend(loc='upper left', fontsize=10)
+        
+        # 移除重复的图例标签
+        handles, labels = save_ax.get_legend_handles_labels()
+        unique_labels = []
+        unique_handles = []
+        for handle, label in zip(handles, labels):
+            if label not in unique_labels:
+                unique_labels.append(label)
+                unique_handles.append(handle)
+        save_ax.legend(unique_handles, unique_labels, loc='upper left', fontsize=10)
+        
         save_ax.set_aspect('equal')
         
         # 自动调整视野范围
@@ -387,27 +400,38 @@ def create_simulation_environment():
     
     # 静态障碍物
     for i in range(5):
-        pos = [np.random.uniform(-8, 8), np.random.uniform(-8, 8), 0.5]
+        pos = [np.random.uniform(2, 8), np.random.uniform(2, 8), 0.5]
         obstacle_id = p.loadURDF("sphere2.urdf", pos)
         obstacles.append(obstacle_id)
     
-    # 动态障碍物
+    # 动态障碍物（设置起点和终点用于往返运动）
+    dynamic_obstacles_info = []
     for i in range(3):
-        pos = [np.random.uniform(-6, 6), np.random.uniform(-6, 6), 0.5]
-        obstacle_id = p.loadURDF("cube.urdf", pos)
+        start_pos = [np.random.uniform(2, 8), np.random.uniform(2, 8), 0.5]
+        end_pos = [start_pos[0] + np.random.uniform(-3, 3), 
+                  start_pos[1] + np.random.uniform(-3, 3), 0.5]
+        
+        obstacle_id = p.loadURDF("cube.urdf", start_pos)
         obstacles.append(obstacle_id)
+        dynamic_obstacles_info.append({
+            'id': obstacle_id,
+            'start_pos': start_pos,
+            'end_pos': end_pos,
+            'direction': 1,  # 1: start->end, -1: end->start
+            'speed': 0.05
+        })
     
-    return robot_id, obstacles
+    return robot_id, obstacles, dynamic_obstacles_info
 
 def main():
     """主函数"""
     # 创建仿真环境
-    robot_id, obstacles = create_simulation_environment()
+    robot_id, obstacles, dynamic_obstacles_info = create_simulation_environment()
     
     # 生成地图 - 修改这里来调整地图大小
     # 推荐尺寸：小型实验 20x20, 中型场景 50x50, 大型场景 100x100
-    MAP_WIDTH = 50      # 地图宽度（米）
-    MAP_HEIGHT = 50     # 地图高度（米）
+    MAP_WIDTH = 10      # 地图宽度（米）
+    MAP_HEIGHT = 10     # 地图高度（米）
     MAP_RESOLUTION = 0.5  # 栅格分辨率（米/格子）
     
     map_generator = NavigationMapGenerator(width=MAP_WIDTH, height=MAP_HEIGHT, resolution=MAP_RESOLUTION)
@@ -415,12 +439,12 @@ def main():
     
     # 创建可视化器
     visualizer = NavigationVisualizer(robot_id, obstacles, grid_map, resolution=MAP_RESOLUTION)
-    # 设置目标点序列 - 直接定点移动
+    # 设置目标点序列 - 在10x10地图范围内
     target_points = [
-        [10, 10],    # 第一个目标点
-        [30, 15],    # 第二个目标点  
-        [40, 40],    # 第三个目标点
-        [15, 35]     # 第四个目标点
+        [2, 2],      # 第一个目标点
+        [8, 2],      # 第二个目标点  
+        [8, 8],      # 第三个目标点
+        [2, 8]       # 第四个目标点
     ]
     
     # 创建控制器 - 直接定点移动
@@ -434,7 +458,7 @@ def main():
     
     # 主仿真循环
     try:
-        for i in range(5000):
+        for i in range(2000):
             p.stepSimulation()
             
             # 控制机器人直接移动到目标点
@@ -456,17 +480,34 @@ def main():
                     targetVelocities=[0, 0]
                 )
             
-            # 移动动态障碍物（后3个为动态障碍物）
-            for j in range(len(obstacles)-3, len(obstacles)):
-                obs_id = obstacles[j]
+            # 移动动态障碍物（两点之间往返运动）
+            for obs_info in dynamic_obstacles_info:
+                obs_id = obs_info['id']
                 current_pos, current_orn = p.getBasePositionAndOrientation(obs_id)
                 
-                # 简单正弦运动
-                new_x = current_pos[0] + 0.02 * math.sin(i * 0.1)
-                new_y = current_pos[1] + 0.02 * math.cos(i * 0.1)
-                new_pos = [new_x, new_y, current_pos[2]]
+                # 计算移动方向
+                if obs_info['direction'] == 1:
+                    target_pos = obs_info['end_pos']
+                else:
+                    target_pos = obs_info['start_pos']
                 
-                p.resetBasePositionAndOrientation(obs_id, new_pos, current_orn)
+                # 计算移动向量
+                dx = target_pos[0] - current_pos[0]
+                dy = target_pos[1] - current_pos[1]
+                distance = math.sqrt(dx*dx + dy*dy)
+                
+                if distance < 0.1:  # 到达目标点，改变方向
+                    obs_info['direction'] *= -1
+                else:
+                    # 向目标点移动
+                    direction_x = dx / distance if distance > 0 else 0
+                    direction_y = dy / distance if distance > 0 else 0
+                    
+                    new_x = current_pos[0] + direction_x * obs_info['speed']
+                    new_y = current_pos[1] + direction_y * obs_info['speed']
+                    new_pos = [new_x, new_y, current_pos[2]]
+                    
+                    p.resetBasePositionAndOrientation(obs_id, new_pos, current_orn)
             
             # 检查是否完成所有目标点
             if robot_controller.current_target_index >= len(target_points):
@@ -478,6 +519,9 @@ def main():
         # 保存轨迹图
         visualizer.save_trajectory_plot("论文用图.png", dpi=600, output_dir="paper/Pic")
         visualizer.save_animation_gif("完整动画.gif", fps=5, output_dir="paper/Gif")
+        
+        # 关闭所有matplotlib图形，避免黑屏问题
+        plt.close('all')
 
             
     except KeyboardInterrupt:
@@ -487,59 +531,59 @@ def main():
         p.disconnect()
         print("仿真结束")
 
-class PerformanceAnalyzer:
-    """性能分析器"""
-    def __init__(self):
-        self.metrics = {
-            'total_distance': 0,
-            'computation_time': 0,
-            'obstacles_avoided': 0,
-            'success_rate': 0
-        }
+# class PerformanceAnalyzer:
+#     """性能分析器"""
+#     def __init__(self):
+#         self.metrics = {
+#             'total_distance': 0,
+#             'computation_time': 0,
+#             'obstacles_avoided': 0,
+#             'success_rate': 0
+#         }
         
-    def update_metrics(self, actual_path, planned_path, computation_time):
-        """更新性能指标"""
-        # 计算实际路径长度
-        actual_length = self.calculate_path_length(actual_path)
+#     def update_metrics(self, actual_path, planned_path, computation_time):
+#         """更新性能指标"""
+#         # 计算实际路径长度
+#         actual_length = self.calculate_path_length(actual_path)
         
-        # 计算规划路径长度（如果存在）
-        planned_length = self.calculate_path_length(planned_path) if planned_path else 0
+#         # 计算规划路径长度（如果存在）
+#         planned_length = self.calculate_path_length(planned_path) if planned_path else 0
         
-        self.metrics['total_distance'] = actual_length
-        self.metrics['computation_time'] += computation_time
-        self.metrics['efficiency'] = planned_length / actual_length if actual_length > 0 else 0
+#         self.metrics['total_distance'] = actual_length
+#         self.metrics['computation_time'] += computation_time
+#         self.metrics['efficiency'] = planned_length / actual_length if actual_length > 0 else 0
         
-    def calculate_path_length(self, path):
-        """计算路径长度"""
-        length = 0
-        for i in range(1, len(path)):
-            dx = path[i][0] - path[i-1][0]
-            dy = path[i][1] - path[i-1][1]
-            length += math.sqrt(dx*dx + dy*dy)
-        return length
+#     def calculate_path_length(self, path):
+#         """计算路径长度"""
+#         length = 0
+#         for i in range(1, len(path)):
+#             dx = path[i][0] - path[i-1][0]
+#             dy = path[i][1] - path[i-1][1]
+#             length += math.sqrt(dx*dx + dy*dy)
+#         return length
     
-    def generate_report(self):
-        """生成性能报告"""
-        report = f"""
-=== 导航性能报告 ===
-总行驶距离: {self.metrics['total_distance']:.2f} m
-总计算时间: {self.metrics['computation_time']:.3f} s
-路径效率: {self.metrics['efficiency']:.3f}
-避障成功率: {self.metrics['success_rate']:.1%}
-        """
-        return report
+#     def generate_report(self):
+#         """生成性能报告"""
+#         report = f"""
+# === 导航性能报告 ===
+# 总行驶距离: {self.metrics['total_distance']:.2f} m
+# 总计算时间: {self.metrics['computation_time']:.3f} s
+# 路径效率: {self.metrics['efficiency']:.3f}
+# 避障成功率: {self.metrics['success_rate']:.1%}
+#         """
+#         return report
 
-def save_trajectory_data(positions, filename="trajectory_data.npz"):
-    """保存轨迹数据"""
-    np.savez(filename, 
-             positions=np.array(positions),
-             timestamp=np.arange(len(positions)))
-    print(f"轨迹数据已保存到 {filename}")
+# def save_trajectory_data(positions, filename="trajectory_data.npz"):
+#     """保存轨迹数据"""
+#     np.savez(filename, 
+#              positions=np.array(positions),
+#              timestamp=np.arange(len(positions)))
+#     print(f"轨迹数据已保存到 {filename}")
 
-def load_trajectory_data(filename="trajectory_data.npz"):
-    """加载轨迹数据"""
-    data = np.load(filename)
-    return data['positions'], data['timestamp']
+# def load_trajectory_data(filename="trajectory_data.npz"):
+#     """加载轨迹数据"""
+#     data = np.load(filename)
+#     return data['positions'], data['timestamp']
 
 if __name__ == "__main__":
 

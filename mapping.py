@@ -3,152 +3,803 @@ import pybullet_data
 import matplotlib.pyplot as plt
 import numpy as np
 import time
+import math
 from matplotlib.animation import FuncAnimation
+from matplotlib.collections import LineCollection
+from matplotlib.colors import LinearSegmentedColormap, ListedColormap
+import os
+import matplotlib
 
-class PyBullet2DVisualizer:
-    def __init__(self, robot_id, obstacles_ids):
+
+# ========== 中文字体设置 ==========
+def setup_chinese_font():
+    """设置中文字体支持"""
+
+    try:
+        # Windows系统字体路径
+        if os.name == 'nt':  # Windows
+            font_path = "C:/Windows/Fonts/simhei.ttf"  # 黑体
+            if os.path.exists(font_path):
+                matplotlib.font_manager.fontManager.addfont(font_path)
+                font_name = matplotlib.font_manager.FontProperties(fname=font_path).get_name()
+                plt.rcParams['font.sans-serif'] = [font_name]
+            else:
+                # 尝试其他中文字体
+                font_path = "C:/Windows/Fonts/msyh.ttc"  # 微软雅黑
+                if os.path.exists(font_path):
+                    matplotlib.font_manager.fontManager.addfont(font_path)
+                    font_name = matplotlib.font_manager.FontProperties(fname=font_path).get_name()
+                    plt.rcParams['font.sans-serif'] = [font_name]
+        
+        # Linux/Mac系统字体路径
+        else:
+            # 常见Linux/Mac中文字体路径
+            chinese_fonts = [
+
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",  # Linux
+                "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",  # Linux文泉驿
+            ]
+            
+            for font_path in chinese_fonts:
+                if os.path.exists(font_path):
+                    matplotlib.font_manager.fontManager.addfont(font_path)
+                    font_name = matplotlib.font_manager.FontProperties(fname=font_path).get_name()
+                    plt.rcParams['font.sans-serif'] = [font_name]
+                    break
+
+        # 确保能正常显示负号
+        plt.rcParams['axes.unicode_minus'] = False
+        
+        print("✓ 中文字体设置完成")
+        
+    except Exception as e:
+        print(f"⚠️ 中文字体设置失败: {e}")
+        print("将使用默认字体，中文可能显示为方框")
+
+# 在程序开始时调用字体设置
+setup_chinese_font()
+
+
+class SimpleRobotController:
+    """简单机器人控制器 - 直接定点移动"""
+    def __init__(self, robot_id, target_points, kp=1.5, max_velocity=2.5):
         self.robot_id = robot_id
-        self.obstacles_ids = obstacles_ids  # 包含静态和动态障碍物ID
-        self.fig, self.ax = plt.subplots(figsize=(10, 8))
+        self.target_points = target_points  # 目标点列表 [[x1,y1], [x2,y2], ...]
+        self.kp = kp      # 比例增益
+        self.max_velocity = max_velocity  # 最大速度
+        self.current_target_index = 0     # 当前目标点索引
+        self.goal_threshold = 0.5         # 到达目标的距离阈值（米）
         
-        # 存储轨迹历史
-        self.robot_positions = []
-        self.obstacle_trajectories = {oid: [] for oid in obstacles_ids}
+    def compute_velocity(self):
+        """计算直接移动到当前目标点的速度指令"""
+        if not self.target_points or self.current_target_index >= len(self.target_points):
+            return None
         
-        # 颜色映射
-        self.colors = plt.cm.tab20(np.linspace(0, 1, len(obstacles_ids)+2))
+        # 获取当前目标点
+        target = self.target_points[self.current_target_index]
         
-    def get_2d_position(self, body_id):
-        """从3D获取2D投影（X-Z平面或X-Y平面）"""
-        pos, _ = p.getBasePositionAndOrientation(body_id)
-        return [pos[0], pos[2]]  # X-Z平面，适合地面机器人
-        # return [pos[0], pos[1]]  # X-Y平面
+        # 获取机器人当前位置
+        current_pos, _ = p.getBasePositionAndOrientation(self.robot_id)
+        current_x, current_y = current_pos[0], current_pos[1]
         
-    def update_plot(self, frame):
-        self.ax.clear()
+        # 计算到目标的距离和方向
+        dx = target[0] - current_x
+        dy = target[1] - current_y
+        distance = math.sqrt(dx*dx + dy*dy)
         
-        # 获取当前位置
+        # 检查是否到达当前目标点
+        if distance < self.goal_threshold:
+            print(f"✓ 到达目标点 {self.current_target_index}: ({target[0]:.1f}, {target[1]:.1f})")
+            self.current_target_index += 1
+            if self.current_target_index >= len(self.target_points):
+                print("✓ 已完成所有目标点导航！")
+                return None
+            return self.compute_velocity()  # 计算下一个目标点的速度
+        
+        # 计算速度指令（简化的比例控制）
+        velocity = min(self.kp * distance, self.max_velocity)
+        
+        # 计算方向角度
+        angle = math.atan2(dy, dx)
+        
+        # 将速度分解为左右轮速度（差分驱动）
+        left_velocity = velocity * (1 + 0.5 * math.sin(angle))
+        right_velocity = velocity * (1 - 0.5 * math.sin(angle))
+        
+        return [left_velocity, right_velocity]
+
+class NavigationVisualizer:
+    """增强版导航可视化器"""
+    def __init__(self, robot_id, obstacles_ids, dynamic_obstacles_info=None):
+        self.robot_id = robot_id
+        self.obstacles_ids = obstacles_ids
+        self.dynamic_obstacles_info = dynamic_obstacles_info or []
+        
+        # # 创建图表
+        # self.fig, self.ax = plt.subplots(figsize=(12, 10))
+        
+        # 存储数据
+        self.robot_positions = []  # 存储机器人轨迹点
+        self.robot_timestamps = [] # 存储机器人时间戳
+        self.obstacle_positions = {oid: [] for oid in obstacles_ids}  # 存储障碍物轨迹点
+        self.obstacle_timestamps = {oid: [] for oid in obstacles_ids} # 存储障碍物时间戳
+        
+        # 创建自定义颜色映射
+        self.create_custom_colormaps()
+
+        # self.planned_path = None
+        
+    def create_custom_colormaps(self):
+        """创建自定义颜色映射"""
+        # 机器人轨迹颜色映射（蓝色渐变）
+        self.robot_cmap = LinearSegmentedColormap.from_list(
+            'robot_path',
+            ['#1f77b4', '#4c94c9', '#78b0de', '#a5cdf3'],  # 深蓝到浅蓝
+            N=256
+        )
+        
+        # 障碍物轨迹颜色映射（红色到橙色渐变，表示时间）
+        self.obstacle_cmap = LinearSegmentedColormap.from_list(
+            'obstacle_path',
+            ['#ff6b6b', '#ffa726', '#ffcc80', '#ffe0b2'],  # 深红到浅橙
+            N=256
+        )
+        
+        # 方向指示颜色映射（绿色到红色，表示不同方向）
+        self.direction_cmap = LinearSegmentedColormap.from_list(
+            'direction_path',
+            ['#00ff00', '#ffff00', '#ff0000'],  # 绿->黄->红
+            N=256
+        )
+
+
+    def update(self):
+        """更新数据，但不绘图"""
+        current_time = time.time()
+        
+        # 获取机器人当前位置
         robot_pos = self.get_2d_position(self.robot_id)
         self.robot_positions.append(robot_pos)
+        self.robot_timestamps.append(current_time)
         
-        # 绘制机器人轨迹
-        if len(self.robot_positions) > 1:
-            path = np.array(self.robot_positions)
-            self.ax.plot(path[:, 0], path[:, 1], 
-                        'b-', linewidth=2, label='Robot Path', alpha=0.7)
-        
-        # 绘制机器人当前位置
-        self.ax.plot(robot_pos[0], robot_pos[1], 
-                    'bo', markersize=12, label='Robot')
-        
-        # 绘制障碍物
-        for i, obs_id in enumerate(self.obstacles_ids):
+        # 获取障碍物当前位置
+        for obs_id in self.obstacles_ids:
             obs_pos = self.get_2d_position(obs_id)
-            self.obstacle_trajectories[obs_id].append(obs_pos)
-            
-            # 获取障碍物类型（静态/动态）
-            obs_info = p.getBodyInfo(obs_id)
-            is_dynamic = "dynamic" in obs_info[1].decode('utf-8').lower()
-            
-            # 绘制障碍物轨迹
-            if len(self.obstacle_trajectories[obs_id]) > 1:
-                obs_path = np.array(self.obstacle_trajectories[obs_id])
-                line_style = '--' if is_dynamic else ':'
-                color = self.colors[i+1]
-                self.ax.plot(obs_path[:, 0], obs_path[:, 1], 
-                           line_style, color=color, alpha=0.5,
-                           label=f'Obstacle {i} Path' if is_dynamic else f'Static {i}')
-            
-            # 绘制障碍物当前位置
-            marker = 's' if is_dynamic else 'o'
-            color = 'red' if is_dynamic else 'gray'
-            self.ax.plot(obs_pos[0], obs_pos[1], 
-                        marker=marker, color=color, markersize=15)
-            
-            # 添加障碍物半径（如果是圆形）
-            try:
-                # 获取碰撞形状信息
-                visual_data = p.getVisualShapeData(obs_id)
-                if visual_data and len(visual_data[0]) > 3:
-                    dimensions = visual_data[0][3]
-                    if len(dimensions) >= 2:
-                        radius = dimensions[0]
-                        circle = plt.Circle(obs_pos, radius, 
-                                          color=color, alpha=0.2)
-                        self.ax.add_patch(circle)
-            except:
-                pass
-        
-        # 设置图形属性
-        self.ax.set_xlabel('X (m)')
-        self.ax.set_ylabel('Z (m)')
-        self.ax.set_title('PyBullet Simulation - 2D View')
-        self.ax.grid(True, alpha=0.3)
-        self.ax.legend(loc='upper left', fontsize='small')
-        self.ax.set_aspect('equal')
-        
-        # 自动调整视野
-        if self.robot_positions:
-            all_points = np.array(self.robot_positions)
-            for traj in self.obstacle_trajectories.values():
-                if traj:
-                    all_points = np.vstack([all_points, np.array(traj[-20:])])  # 最近20个点
-            if len(all_points) > 1:
-                x_min, x_max = all_points[:, 0].min(), all_points[:, 0].max()
-                y_min, y_max = all_points[:, 1].min(), all_points[:, 1].max()
-                margin = max((x_max-x_min), (y_max-y_min)) * 0.2
-                self.ax.set_xlim(x_min-margin, x_max+margin)
-                self.ax.set_ylim(y_min-margin, y_max+margin)
+            self.obstacle_positions[obs_id].append(obs_pos)
+            self.obstacle_timestamps[obs_id].append(current_time)
     
-    def animate(self):
-        """实时动画"""
-        anim = FuncAnimation(self.fig, self.update_plot, 
-                           interval=50, cache_frame_data=False)
-        plt.show()
+    def get_2d_position(self, body_id):
+        """获取2D位置"""
+        pos, _ = p.getBasePositionAndOrientation(body_id)
+        return [pos[0], pos[1]]  # X-Y平面
+    
+    def plot_gradient_trajectory(self, ax, positions, timestamps,
+                                 cmap_name='robot_path', linewidth_range=(1.0, 4.0),
+                                 alpha=0.8, zorder=3, label="轨迹"):
+        if len(positions) < 2:
+            return
 
-# 使用示例
-def setup_simulation():
+        positions_array = np.array(positions)
+        timestamps_array = np.array(timestamps)
+
+        # 归一化时间戳 (0, 1)
+        if len(timestamps_array) > 1:
+            normalized_time = (timestamps_array - timestamps_array.min()) / (timestamps_array.max() - timestamps_array.min())
+        else:
+            normalized_time = np.zeros_like(timestamps_array)
+
+        # 创建线段集合
+        segments = []
+        colors = []
+        widths = []
+
+        for i in range(len(positions_array) - 1):
+            # 创建线段
+            segment = np.array([positions_array[i], positions_array[i + 1]])
+            segments.append(segment)
+
+            # 使用中点的时间作为颜色参考
+            mid_time = (normalized_time[i] + normalized_time[i + 1]) / 2
+
+            # 选择颜色映射
+            if cmap_name == 'robot_path':
+                cmap = self.robot_cmap
+                color = cmap(mid_time)
+            elif cmap_name == 'obstacle_path':
+                cmap = self.obstacle_cmap
+                color = cmap(mid_time)
+            elif cmap_name == 'direction_path':
+                cmap = self.direction_cmap
+                color = cmap(mid_time)
+            else:
+                color = 'red'
+            
+            colors.append(color)
+
+            # 线宽渐变（时间越新，线越粗）
+            width = linewidth_range[0] + (linewidth_range[1] - linewidth_range[0]) * mid_time
+            widths.append(width)
+        
+
+
+        # 创建LineCollection
+        lc = LineCollection(segments, colors=colors, linewidths=widths,
+                           alpha=alpha, zorder=zorder, capstyle='round')
+        
+        ax.add_collection(lc)
+        
+        # 创建图例代理
+        from matplotlib.lines import Line2D
+        proxy = Line2D([0], [0], color=colors[-1] if colors else 'red', 
+                      linewidth=linewidth_range[1], alpha=alpha)
+        
+        return proxy, label
+
+    def plot_direction_arrows(self, ax, positions, timestamps, color='#3498db', alpha=0.7):
+        """绘制方向箭头（表示运动方向）"""
+        if len(positions) < 2:
+            return
+        
+        positions_array = np.array(positions)
+        
+        # 增大箭头绘制间隔，确保稀疏但每个线段都有
+        # 每50个点绘制一个箭头，但不超过总点数的1/10
+        arrow_step = max(1, min(50, len(positions_array) // 10))
+        
+        # 使用统一的中间蓝色
+        arrow_color = color
+        
+        for i in range(0, len(positions_array) - 1, arrow_step):
+            if i + 1 < len(positions_array):
+                # 计算方向
+                dx = positions_array[i+1][0] - positions_array[i][0]
+                dy = positions_array[i+1][1] - positions_array[i][1]
+                
+                if abs(dx) > 0.01 or abs(dy) > 0.01:  # 避免零向量
+                    # 绘制箭头
+                    ax.arrow(positions_array[i][0], positions_array[i][1],
+                            dx, dy, head_width=0.2, head_length=0.3,
+                            fc=arrow_color, ec=arrow_color, alpha=alpha,
+                            length_includes_head=True, zorder=4)
+    
+    def plot_time_gradient_circles(self, ax, positions, timestamps, 
+                                 color='red', alpha_range=(0.2, 1.0)):
+        """绘制时间渐变的圆圈（表示停留时间）"""
+        if len(positions) < 2:
+            return
+        
+        positions_array = np.array(positions)
+        
+        # 计算每个点的时间密度（停留时间）
+        if len(timestamps) > 1:
+            time_diffs = np.diff(timestamps)
+            avg_time_diff = np.mean(time_diffs)
+            
+            # 找到长时间停留的点
+            for i in range(len(time_diffs)):
+                if time_diffs[i] > avg_time_diff * 2:  # 停留时间超过平均值的2倍
+                    # 根据停留时间计算圆圈大小和透明度
+                    size_factor = min(time_diffs[i] / avg_time_diff, 5.0)
+                    radius = 0.1 * size_factor
+                    alpha = alpha_range[0] + (alpha_range[1] - alpha_range[0]) * (1 - 1/size_factor)
+                    
+                    circle = plt.Circle(positions_array[i], radius, 
+                                       color=color, alpha=alpha, zorder=2,
+                                       fill=True, linewidth=0)
+                    ax.add_patch(circle)
+    
+
+
+    def save_trajectory_plot(self, filename="trajectory_plot.png", dpi=300, output_dir="./results"):
+        """保存增强版轨迹图"""
+        os.makedirs(output_dir, exist_ok=True)
+        filepath = os.path.join(output_dir, filename)
+        
+        # 创建图形
+        fig, ax = plt.subplots(figsize=(14, 12))
+        
+        # 设置背景色
+        ax.set_facecolor('#f8f9fa')
+        
+        # 1. 绘制机器人渐变轨迹
+        if len(self.robot_positions) > 1:
+            robot_proxy, robot_label = self.plot_gradient_trajectory(
+                ax, self.robot_positions, self.robot_timestamps,
+                cmap_name='robot_path', linewidth_range=(2.0, 6.0),
+                alpha=0.9, zorder=5, label="机器人轨迹（时间渐变）"
+            )
+            
+            # 绘制机器人方向箭头
+            self.plot_direction_arrows(ax, self.robot_positions, 
+                                      self.robot_timestamps, color='blue', alpha=0.6)
+        
+        # 2. 绘制机器人起点和终点（特殊标记）
+        if self.robot_positions:
+            start_pos = self.robot_positions[0]
+            end_pos = self.robot_positions[-1]
+            
+            # 起点（绿色大圆）
+            ax.plot(start_pos[0], start_pos[1], 'o', markersize=25,
+                   color='#2ecc71', markeredgecolor='black', 
+                   markeredgewidth=3, zorder=10, label='起点')
+            ax.text(start_pos[0], start_pos[1] - 0.4, '起点', 
+                   fontsize=12, ha='center', va='top', fontweight='bold',
+                   bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.8))
+            
+            # 终点（红色大圆）
+            ax.plot(end_pos[0], end_pos[1], 'o', markersize=25,
+                   color='#e74c3c', markeredgecolor='black',
+                   markeredgewidth=3, zorder=10, label='终点')
+            ax.text(end_pos[0], end_pos[1] - 0.4, '终点',
+                   fontsize=12, ha='center', va='top', fontweight='bold',
+                   bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.8))
+        
+        # 3. 绘制障碍物渐变轨迹
+        obstacle_proxies = []
+        for i, obs_id in enumerate(self.obstacles_ids):
+            if len(self.obstacle_positions[obs_id]) > 1:
+                # 计算障碍物运动方向（用于选择颜色映射）
+                positions = self.obstacle_positions[obs_id]
+                timestamps = self.obstacle_timestamps[obs_id]
+                
+                # 判断障碍物是否往返运动
+                is_reciprocating = self.detect_reciprocating_motion(positions)
+                
+                if is_reciprocating:
+                    # 往返运动使用方向颜色映射
+                    proxy, label = self.plot_gradient_trajectory(
+                        ax, positions, timestamps,
+                        cmap_name='direction_path', linewidth_range=(1.5, 4.0),
+                        alpha=0.7, zorder=4, 
+                        label=f"障碍物{i+1}轨迹（往返运动）"
+                    )
+                else:
+                    # 单向运动使用时间颜色映射
+                    proxy, label = self.plot_gradient_trajectory(
+                        ax, positions, timestamps,
+                        cmap_name='obstacle_path', linewidth_range=(1.5, 8.0),
+                        alpha=0.7, zorder=4, 
+                        label=f"障碍物{i+1}轨迹（时间渐变）"
+                    )
+                
+                obstacle_proxies.append((proxy, label))
+                
+                # 绘制障碍物方向箭头
+                self.plot_direction_arrows(ax, positions, timestamps, 
+                                          color='red', alpha=0.5)
+                
+                # 绘制时间渐变圆圈（显示停留时间）
+                self.plot_time_gradient_circles(ax, positions, timestamps,
+                                              color='orange', alpha_range=(0.1, 0.5))
+                
+                # 绘制障碍物当前位置
+                if positions:
+                    current_pos = positions[-1]
+                    ax.plot(current_pos[0], current_pos[1], 's', markersize=20,
+                           color='#e74c3c', markeredgecolor='black',
+                           markeredgewidth=2, zorder=6, 
+                           label=f'障碍物{i+1}当前位置' if i == 0 else "")
+        
+        # 4. 绘制目标点
+        target_points = [
+            [2, 2], [8, 2], [8, 8], [2, 8]
+        ]
+        
+        for i, target in enumerate(target_points):
+            # 绘制目标点（紫色星星）
+            ax.plot(target[0], target[1], '*', markersize=35,
+                   color='#9b59b6', markeredgecolor='black',
+                   markeredgewidth=2, zorder=9,
+                   label=f'目标点{i+1}' if i == 0 else "")
+            
+            # 添加目标点标签
+            ax.text(target[0], target[1] + 0.5, f'目标{i+1}',
+                   fontsize=11, ha='center', va='bottom', fontweight='bold',
+                   bbox=dict(boxstyle="round,pad=0.3", facecolor='white', 
+                           edgecolor='#9b59b6', alpha=0.9))
+        
+        # 5. 添加时间刻度条（颜色条）
+        if len(self.robot_positions) > 1:
+            # 创建颜色条
+            sm = plt.cm.ScalarMappable(cmap=self.robot_cmap, 
+                                      norm=plt.Normalize(0, 1))
+            sm.set_array([])
+            
+            # 添加颜色条
+            cbar = plt.colorbar(sm, ax=ax, orientation='vertical', 
+                               fraction=0.03, pad=0.02)
+            cbar.set_label('时间（相对）', fontsize=12)
+            cbar.ax.tick_params(labelsize=10)
+        
+        # 6. 设置图形属性
+        ax.set_xlabel('X坐标 (米)', fontsize=14, fontweight='bold')
+        ax.set_ylabel('Y坐标 (米)', fontsize=14, fontweight='bold')
+        ax.set_title('机器人导航轨迹图 - 时间渐变可视化', 
+                    fontsize=16, fontweight='bold', pad=20)
+        
+        ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
+        ax.set_xlim(0, 10)
+        ax.set_ylim(0, 10)
+        ax.set_xticks(range(0, 11, 2))
+        ax.set_yticks(range(0, 11, 2))
+        
+        # 添加坐标网格
+        ax.grid(True, which='major', alpha=0.4, linestyle='-', linewidth=0.5)
+        ax.grid(True, which='minor', alpha=0.2, linestyle=':', linewidth=0.5)
+        ax.minorticks_on()
+        
+        # 7. 创建图例
+        legend_handles = []
+        legend_labels = []
+        
+        # 添加机器人轨迹图例
+        if len(self.robot_positions) > 1:
+            from matplotlib.lines import Line2D
+            robot_legend = Line2D([0], [0], color=self.robot_cmap(0.7), 
+                                linewidth=4, alpha=0.9)
+            legend_handles.append(robot_legend)
+            legend_labels.append("机器人轨迹（细→粗：时间推进）")
+        
+        # 添加起点终点图例
+        start_legend = Line2D([0], [0], marker='o', color='w', 
+                             markerfacecolor='#2ecc71', markersize=10,
+                             markeredgecolor='black', markeredgewidth=2)
+        legend_handles.append(start_legend)
+        legend_labels.append("起点")
+        
+        end_legend = Line2D([0], [0], marker='o', color='w',
+                           markerfacecolor='#e74c3c', markersize=10,
+                           markeredgecolor='black', markeredgewidth=2)
+        legend_handles.append(end_legend)
+        legend_labels.append("终点")
+        
+        # 添加障碍物图例
+        if obstacle_proxies:
+            obs_legend = Line2D([0], [0], color=self.obstacle_cmap(0.5),
+                              linewidth=3, alpha=0.7)
+            legend_handles.append(obs_legend)
+            legend_labels.append("障碍物轨迹（浅→深：时间推进）")
+            
+            dir_legend = Line2D([0], [0], color=self.direction_cmap(0.5),
+                              linewidth=3, alpha=0.7)
+            legend_handles.append(dir_legend)
+            legend_labels.append("往返运动（绿→红：方向变化）")
+        
+        # 添加目标点图例
+        target_legend = Line2D([0], [0], marker='*', color='w',
+                             markerfacecolor='#9b59b6', markersize=15,
+                             markeredgecolor='black', markeredgewidth=1)
+        legend_handles.append(target_legend)
+        legend_labels.append("目标点")
+        
+        # 添加箭头图例
+        arrow_legend = Line2D([0], [0], marker='>', color='w',
+                            markerfacecolor='blue', markersize=10,
+                            markeredgecolor='blue', markeredgewidth=1)
+        legend_handles.append(arrow_legend)
+        legend_labels.append("运动方向")
+        
+        # 绘制图例
+        ax.legend(legend_handles, legend_labels, loc='upper left',
+                 fontsize=11, framealpha=0.95, shadow=True,
+                 fancybox=True, borderpad=1)
+        
+        ax.set_aspect('equal')
+        
+        # 8. 添加信息文本框
+        info_text = f"""
+轨迹信息:
+• 机器人轨迹点数: {len(self.robot_positions)}
+• 轨迹总时长: {self.robot_timestamps[-1] - self.robot_timestamps[0]:.1f}s
+• 障碍物数量: {len(self.obstacles_ids)}
+• 可视化说明:
+  线宽渐变: 细→粗表示时间推进
+  颜色渐变: 浅→深表示时间推进
+  箭头方向: 表示瞬时运动方向
+  圆圈大小: 表示停留时间长短
+"""
+        ax.text(0.02, 0.98, info_text, transform=ax.transAxes,
+               fontsize=10, verticalalignment='top',
+               bbox=dict(boxstyle="round,pad=0.5", facecolor='white', 
+                       alpha=0.9, edgecolor='gray'))
+        
+        # 保存图片
+        plt.tight_layout()
+        fig.savefig(filepath, dpi=dpi, bbox_inches='tight', 
+                   facecolor='white', edgecolor='none')
+        plt.close(fig)
+        
+        print(f"✓ 增强版轨迹图已保存为: {filepath}")
+        print(f"  时间渐变可视化已启用")
+
+    def detect_reciprocating_motion(self, positions, threshold=0.3):
+        """检测是否往返运动"""
+        if len(positions) < 10:
+            return False
+        
+        positions_array = np.array(positions)
+        
+        # 计算移动方向的变化
+        directions = []
+        for i in range(1, len(positions_array)):
+            dx = positions_array[i][0] - positions_array[i-1][0]
+            dy = positions_array[i][1] - positions_array[i-1][1]
+            if abs(dx) > 0.01 or abs(dy) > 0.01:
+                direction = math.atan2(dy, dx)
+                directions.append(direction)
+        
+        if len(directions) < 5:
+            return False
+        
+        # 计算方向变化率
+        direction_changes = 0
+        for i in range(1, len(directions)):
+            # 计算方向角度差（考虑圆周）
+            diff = abs(directions[i] - directions[i-1])
+            if diff > math.pi:
+                diff = 2 * math.pi - diff
+            
+            if diff > math.pi/2:  # 方向变化超过90度
+                direction_changes += 1
+        
+        # 如果方向变化频繁，可能是往返运动
+        return direction_changes / len(directions) > threshold
+
+
+
+def create_simulation_environment():
+    """创建仿真环境"""
     physicsClient = p.connect(p.GUI)
     p.setAdditionalSearchPath(pybullet_data.getDataPath())
+    p.setGravity(0, 0, -9.8)
     
+    # 设置物理参数
+    p.setPhysicsEngineParameter(fixedTimeStep=1./240.)
+
     # 加载地面
     planeId = p.loadURDF("plane.urdf")
     
-    # 加载机器人（例如TurtleBot）
-    robot_start_pos = [0, 0, 0.1]
-    robot_id = p.loadURDF("racecar/racecar.urdf", robot_start_pos)
+    # 创建机器人（使用立方体代替赛车，确保显示正确）
+    robot_start_pos = [1, 1, 0.5]
+    # 创建简单的立方体作为机器人
+    robot_shape = p.createCollisionShape(p.GEOM_BOX, halfExtents=[0.3, 0.3, 0.3])
+    robot_id = p.createMultiBody(baseMass=1.0,
+                                baseCollisionShapeIndex=robot_shape,
+                                basePosition=robot_start_pos)
+    
+    # 设置机器人颜色为蓝色
+    p.changeVisualShape(robot_id, -1, rgbaColor=[0, 0, 1, 1])
     
     # 创建障碍物
     obstacles = []
+    dynamic_obstacles_info = []
     
-    # 静态障碍物
-    static_obs = p.loadURDF("sphere_small.urdf", [2, 0, 0.5])
-    obstacles.append(static_obs)
+    # 静态障碍物（球体）
+    static_obstacle_positions = [
+        [3, 3, 0.5],
+        [7, 3, 0.5],
+        [5, 5, 0.5],
+        [3, 7, 0.5],
+        [7, 7, 0.5]
+    ]
     
-    # 动态障碍物（移动）
-    dynamic_obs = p.loadURDF("cube_small.urdf", [-2, 0, 0.5])
-    obstacles.append(dynamic_obs)
+    for pos in static_obstacle_positions:
+        obstacle_id = p.loadURDF("sphere2.urdf", pos, globalScaling=0.5)
+        p.changeVisualShape(obstacle_id, -1, rgbaColor=[1, 0, 0, 1])  # 红色
+        obstacles.append(obstacle_id)
     
-    return robot_id, obstacles
 
-# 主程序
-if __name__ == "__main__":
-    robot_id, obstacles = setup_simulation()
-    visualizer = PyBullet2DVisualizer(robot_id, obstacles)
+    # 动态障碍物 - 创建不同类型的运动
+    # 障碍物1: 简单直线往返
+    obstacle1_start = [2, 5, 0.5]
+    obstacle1_end = [2, 8, 0.5]
     
-    # 在另一个线程中运行动画
-    import threading
-    anim_thread = threading.Thread(target=visualizer.animate)
-    anim_thread.start()
+    obstacle_id1 = p.loadURDF("cube.urdf", obstacle1_start, globalScaling=0.5)
+    p.changeVisualShape(obstacle_id1, -1, rgbaColor=[1, 0.5, 0, 1])
+    obstacles.append(obstacle_id1)
+    dynamic_obstacles_info.append({
+        'id': obstacle_id1,
+        'start_pos': obstacle1_start,
+        'end_pos': obstacle1_end,
+        'direction': 1,
+        'speed': 0.02
+    })
     
-    # 仿真循环
-    for i in range(10000):
+    # 障碍物2: 圆形运动
+    obstacle2_center = [5, 5, 0.5]
+    obstacle2_radius = 2.0
+    obstacle_id2 = p.loadURDF("cube.urdf", [obstacle2_center[0] + obstacle2_radius, 
+                                          obstacle2_center[1], 0.5], 
+                             globalScaling=0.5)
+    p.changeVisualShape(obstacle_id2, -1, rgbaColor=[0.5, 1, 0, 1])
+    obstacles.append(obstacle_id2)
+    dynamic_obstacles_info.append({
+        'id': obstacle_id2,
+        'type': 'circular',
+        'center': obstacle2_center,
+        'radius': obstacle2_radius,
+        'angle': 0,
+        'speed': 0.02
+    })
+    
+    # 障碍物3: 复杂折线运动
+    obstacle3_waypoints = [
+        [8, 2, 0.5],
+        [8, 8, 0.5],
+        [6, 6, 0.5],
+        [8, 2, 0.5]
+    ]
+    obstacle_id3 = p.loadURDF("cube.urdf", obstacle3_waypoints[0], globalScaling=0.5)
+    p.changeVisualShape(obstacle_id3, -1, rgbaColor=[1, 0, 0.5, 1])
+    obstacles.append(obstacle_id3)
+    dynamic_obstacles_info.append({
+        'id': obstacle_id3,
+        'type': 'waypoints',
+        'waypoints': obstacle3_waypoints,
+        'current_waypoint': 0,
+        'speed': 0.02
+    })
+    
+    # 稳定化步骤
+    for _ in range(10):
         p.stepSimulation()
-        
-        # 移动动态障碍物
-        pos = np.array([-2 + 0.05*i % 4, 0, 0.5])
-        p.resetBasePositionAndOrientation(obstacles[1], pos, [0,0,0,1])
-        
-        time.sleep(1./240.)
+        time.sleep(0.01)
     
-    p.disconnect()
+    
+    return robot_id, obstacles, dynamic_obstacles_info
+
+def main():
+    """主函数 - 修复版本"""
+    # 创建仿真环境
+    robot_id, obstacles, dynamic_obstacles_info = create_simulation_environment()
+    
+    # 创建可视化器
+    visualizer = NavigationVisualizer(robot_id, obstacles, dynamic_obstacles_info)
+    
+    # 设置目标点序列
+    target_points = [
+        [2, 2],      # 第一个目标点
+        [8, 2],      # 第二个目标点  
+        [8, 8],      # 第三个目标点
+        [2, 8]       # 第四个目标点
+    ]
+    
+    # 创建控制器
+    robot_controller = SimpleRobotController(robot_id, target_points, kp=0.8, max_velocity=1.2)
+    
+    print("\n开始导航...")
+    print("目标点序列:", target_points)
+    print("动态障碍物包含: 直线往返、圆形运动、折线运动\n")
+    
+    # 添加键盘控制标记
+    key_stop = False
+    
+    # 主仿真循环
+    try:
+        step_count = 0
+        max_steps = 500  # 增加最大步数
+        
+        while step_count < max_steps and not key_stop:
+            p.stepSimulation()
+            step_count += 1
+            
+            # 更新可视化数据
+            visualizer.update()
+            
+            # 控制机器人移动
+            velocity_cmd = robot_controller.compute_velocity()
+            
+            if velocity_cmd:
+                # 改进的速度控制 - 使用直接位置控制，避免物理碰撞问题
+                current_pos, current_orn = p.getBasePositionAndOrientation(robot_id)
+                
+                # 获取当前目标点
+                target = robot_controller.target_points[robot_controller.current_target_index]
+                
+                # 计算移动方向
+                dx = target[0] - current_pos[0]
+                dy = target[1] - current_pos[1]
+                distance = math.sqrt(dx*dx + dy*dy)
+                
+                if distance > 0.1:  # 如果距离目标较远
+                    # 计算移动速度
+                    speed = min(velocity_cmd[0] * 5, 2.5)  # 限制最大速度
+                    
+                    # 计算新位置（直接设置位置，避免碰撞）
+                    step_size = speed * (1./240.)  # 基于时间步长
+                    new_x = current_pos[0] + dx/distance * step_size
+                    new_y = current_pos[1] + dy/distance * step_size
+                    
+                    # 保持Z坐标不变，避免掉下去
+                    new_z = 0.5  # 固定高度
+                    
+                    # 直接设置机器人位置（跳过物理引擎）
+                    p.resetBasePositionAndOrientation(robot_id, [new_x, new_y, new_z], current_orn)
+
+            else:
+                # 已到达所有目标点
+                print("✓ 已完成所有目标点导航！")
+                break
+            
+            # 动态障碍物控制
+            for obs_info in dynamic_obstacles_info:
+                obs_id = obs_info['id']
+                current_pos, current_orn = p.getBasePositionAndOrientation(obs_id)
+                
+                if obs_info.get('type') == 'circular':
+                    # 圆形运动
+                    angle = obs_info.get('angle', 0) + obs_info['speed']
+                    obs_info['angle'] = angle
+                    
+                    x = obs_info['center'][0] + obs_info['radius'] * math.cos(angle)
+                    y = obs_info['center'][1] + obs_info['radius'] * math.sin(angle)
+                    
+                    p.resetBasePositionAndOrientation(obs_id, [x, y, 0.5], current_orn)
+                    
+                elif obs_info.get('type') == 'waypoints':
+                    # 折线运动
+                    waypoints = obs_info['waypoints']
+                    current_idx = obs_info['current_waypoint']
+                    target_wp = waypoints[current_idx]
+                    
+                    dx = target_wp[0] - current_pos[0]
+                    dy = target_wp[1] - current_pos[1]
+                    distance = math.sqrt(dx*dx + dy*dy)
+                    
+                    if distance < 0.1:
+                        obs_info['current_waypoint'] = (current_idx + 1) % len(waypoints)
+                    else:
+                        direction_x = dx / distance if distance > 0 else 0
+                        direction_y = dy / distance if distance > 0 else 0
+                        
+                        new_x = current_pos[0] + direction_x * obs_info['speed']
+                        new_y = current_pos[1] + direction_y * obs_info['speed']
+                        
+                        p.resetBasePositionAndOrientation(obs_id, [new_x, new_y, 0.5], current_orn)
+                        
+                else:
+                    # 直线往返运动
+                    if obs_info['direction'] == 1:
+                        target_pos = obs_info['end_pos']
+                    else:
+                        target_pos = obs_info['start_pos']
+                    
+                    dx = target_pos[0] - current_pos[0]
+                    dy = target_pos[1] - current_pos[1]
+                    distance = math.sqrt(dx*dx + dy*dy)
+                    
+                    if distance < 0.1:
+                        obs_info['direction'] *= -1
+                    else:
+                        direction_x = dx / distance if distance > 0 else 0
+                        direction_y = dy / distance if distance > 0 else 0
+                        
+                        new_x = current_pos[0] + direction_x * obs_info['speed']
+                        new_y = current_pos[1] + direction_y * obs_info['speed']
+                        
+                        p.resetBasePositionAndOrientation(obs_id, [new_x, new_y, 0.5], current_orn)
+            
+            # 短暂暂停，让仿真可见
+            time.sleep(1./60.)
+            
+            # 检查键盘输入
+            keys = p.getKeyboardEvents()
+            if ord('q') in keys and keys[ord('q')] & p.KEY_WAS_TRIGGERED:
+                print("用户按下Q键，停止仿真")
+                key_stop = True
+        
+        # 保存轨迹图
+        print("\n正在生成轨迹图...")
+        visualizer.save_trajectory_plot("论文用图.png", dpi=600, output_dir="paper/Pic")
+        
+    except KeyboardInterrupt:
+        print("仿真被用户中断")
+    except Exception as e:
+        print(f"仿真出错: {e}")
+    finally:
+        p.disconnect()
+        plt.close('all')
+        print("仿真结束")
+
+if __name__ == "__main__":
+    main()
