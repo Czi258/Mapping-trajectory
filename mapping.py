@@ -11,6 +11,99 @@ import os
 import matplotlib
 
 
+# ========== 全局可视化配置 ==========
+# 一、箭头参数
+# 1. 默认参数
+ARROW_COLOR = '#3498db'           # 箭头统一颜色（中间蓝色）
+ARROW_ALPHA = 0.7                 # 箭头透明度
+ARROW_HEAD_WIDTH = 0.2            # 箭头头部宽度
+ARROW_HEAD_LENGTH = 0.3           # 箭头头部长度
+ARROW_ZORDER = 6                  # 箭头绘制层级
+ARROW_MIN_POINTS = 2              # 绘制箭头的最小轨迹点数
+ARROW_STEP_MIN = 100              # 箭头间隔最小值（每多少个点绘制一个箭头）
+ARROW_STEP_RATIO = 5              # 箭头间隔比例（不超过总点数的1/ARROW_STEP_RATIO）
+# 2. 机器人箭头参数
+ARROW_ROBOT_COLOR = 'blue'     # 机器人箭头颜色
+ARROW_ROBOT_ALPHA = 0.6        # 机器人箭头透明度
+# 3. 障碍物箭头参数
+ARROW_OBS_COLOR = 'red'         # 障碍物箭头颜色
+ARROW_OBS_ALPHA = 0.6           # 障碍物箭头透明度
+
+# 二、停留圆圈参数
+STAY_CIRCLE_COLOR = 'orange'      # 圆圈颜色
+STAY_CIRCLE_ALPHA_MIN = 0.1       # 圆圈透明度最小值
+STAY_CIRCLE_ALPHA_MAX = 0.5       # 圆圈透明度最大值
+STAY_TIME_THRESHOLD = 2.0         # 停留时间阈值（平均值的多少倍时绘制圆圈）
+STAY_SIZE_MAX = 5.0               # 圆圈大小最大值系数
+STAY_CIRCLE_ZORDER = 2            # 圆圈绘制层级
+STAY_MIN_POINTS = 2               # 绘制停留圆圈的最小轨迹点数
+
+# 三、轨迹线参数
+# 1. 默认参数
+TRAJECTORY_LINEWIDTH_MIN = 1.0    # 轨迹线最小宽度
+TRAJECTORY_LINEWIDTH_MAX = 4.0    # 轨迹线最大宽度
+TRAJECTORY_ALPHA = 0.7            # 轨迹线透明度
+TRAJECTORY_ZORDER = 3             # 轨迹线绘制层级
+TRAJECTORY_MIN_POINTS = 2         # 绘制轨迹的最小点数
+# 2. 机器人轨迹参数
+TRAJ_ROBOT_LINEWIDTH_MIN = 2.0          # 机器人轨迹线最小宽度
+TRAJ_ROBOT_LINEWIDTH_MAX = 6.0          # 机器人轨迹线最大宽度
+TRAJ_ROBOT_ALPHA = 0.9                  # 机器人轨迹线透明度
+TRAJ_ROBOT_ZORDER = 5                   # 机器人轨迹线绘制层级
+# 3. 障碍物轨迹参数
+TRAJ_OBS_LINEWIDTH_MIN = 1.5
+TRAJ_OBS_LINEWIDTH_MAX = 8.0
+TRAJ_OBS_ALPHA = 0.7
+TRAJ_OBS_ZORDER = 4
+
+# 四、物体参数
+# 1. 默认参数
+DATA_LABEL_OFFSET_X = 0
+DATA_LABEL_OFFSET_Y = -0.5
+DATA_LABEL_FONTSIZE = 12
+DATA_LABEL_BOXSTYLE = "round"
+DATA_LABEL_BOXPAD = 0.3  
+DATA_LABEL_BOXCOLOR = 'white'
+DATA_LABEL_BOXALPHA = 0.8
+DATA_LABEL_ZORDER = 30
+ICON_EDGE_COLOR = 'black'
+ICON_EDGE_WIDTH = 3
+# 2. 机器人始终点参数
+ROBOT_POINT_MARKERSIZE = 25
+ROBOT_POINT_ZORDER = 10
+ROBOT_START_COLOR = '#2ecc71'
+ROBOT_END_COLOR = '#e74c3c'
+# 3. 障碍物位置参数
+OBS_POINT_MARKERSIZE = 20
+OBS_POINT_COLOR = '#e74c3c'
+OBS_POINT_ZORDER = 6
+# 4. 目标点参数
+TARGET_POINT_MARKERSIZE = 35
+TARGET_POINT_COLOR = '#9b59b6'
+TARGET_POINT_ZORDER = 9
+
+
+# 五、图形显示参数
+FIG_XY_FONTSIZE = 14          # 坐标轴字体大小
+FIG_X_LABEL_CONTENT = 'X坐标 (米)'  # 坐标轴标签内容
+FIG_Y_LABEL_CONTENT = 'Y坐标 (米)'  # 坐标轴标签内容
+FIG_TITLE_CONTENT = '机器人导航轨迹图 - 时间渐变可视化' # 图形标题内容
+FIG_TITLE_FONTSIZE = 16        # 标题字体大小
+FIG_TITLE_PAD = 20            # 标题与图形的距离
+GRID_MAJOR_VISIBLE = True    # 主网格可见性
+GRID_MAJOR_LINE_ALPHA = 0.4  # 主网格线透明度
+GRID_MAJOR_LINE_STYLE = '-'  # 主网格线样式
+GRID_MAJOR_LINE_WIDTH = 0.5 # 主网格线宽度
+GRID_MINOR_VISIBLE = True   # 次网格可见性
+GRID_MINOR_LINE_ALPHA = 0.2 # 次网格线透明度
+GRID_MINOR_LINE_STYLE = ':' # 次网格线样式
+GRID_MINOR_LINE_WIDTH = 0.5 # 次网格线宽度
+FIG_XY_LIM_MIN = 0         # 坐标轴范围最小值
+FIG_XY_LIM_MAX = 10        # 坐标轴范围最大值
+FIG_XY_TICKS_MIN = 0    # 坐标轴刻度最小值
+FIG_XY_TICKS_MAX = 11   # 坐标轴刻度最大值
+FIG_XY_TICK = 2          # 坐标轴刻度间隔
+
 # ========== 中文字体设置 ==========
 def setup_chinese_font():
     """设置中文字体支持"""
@@ -134,18 +227,18 @@ class NavigationVisualizer:
         # 机器人轨迹颜色映射（蓝色渐变）
         self.robot_cmap = LinearSegmentedColormap.from_list(
             'robot_path',
-            ['#1f77b4', '#4c94c9', '#78b0de', '#a5cdf3'],  # 深蓝到浅蓝
+            ['#a5cdf3', '#4c94c9', '#78b0de', '#1f77b4'],  # 浅蓝到深蓝
             N=256
         )
         
-        # 障碍物轨迹颜色映射（红色到橙色渐变，表示时间）
+        # 障碍物轨迹颜色映射（橙色到红色渐变，表示时间）
         self.obstacle_cmap = LinearSegmentedColormap.from_list(
             'obstacle_path',
-            ['#ff6b6b', '#ffa726', '#ffcc80', '#ffe0b2'],  # 深红到浅橙
+            ['#ffe0b2', '#ffcc80', '#ffa726', '#ff6b6b'],  # 浅橙到深红
             N=256
         )
         
-        # 方向指示颜色映射（绿色到红色，表示不同方向）
+        # 方向指示颜色映射（绿色到红色，表示不同方向）（暂时不用）
         self.direction_cmap = LinearSegmentedColormap.from_list(
             'direction_path',
             ['#00ff00', '#ffff00', '#ff0000'],  # 绿->黄->红
@@ -174,9 +267,11 @@ class NavigationVisualizer:
         return [pos[0], pos[1]]  # X-Y平面
     
     def plot_gradient_trajectory(self, ax, positions, timestamps,
-                                 cmap_name='robot_path', linewidth_range=(1.0, 4.0),
-                                 alpha=0.8, zorder=3, label="轨迹"):
-        if len(positions) < 2:
+                                 cmap_name='robot_path', 
+                                 linewidth_range=(TRAJECTORY_LINEWIDTH_MIN, TRAJECTORY_LINEWIDTH_MAX),
+                                 alpha=TRAJECTORY_ALPHA, 
+                                 zorder=TRAJECTORY_ZORDER, label="轨迹"):
+        if len(positions) < TRAJECTORY_MIN_POINTS:
             return
 
         positions_array = np.array(positions)
@@ -235,18 +330,18 @@ class NavigationVisualizer:
         
         return proxy, label
 
-    def plot_direction_arrows(self, ax, positions, timestamps, color='#3498db', alpha=0.7):
+    def plot_direction_arrows(self, ax, positions, timestamps, color=ARROW_COLOR, alpha=ARROW_ALPHA):
         """绘制方向箭头（表示运动方向）"""
-        if len(positions) < 2:
+        if len(positions) < ARROW_MIN_POINTS:
             return
         
         positions_array = np.array(positions)
         
         # 增大箭头绘制间隔，确保稀疏但每个线段都有
-        # 每50个点绘制一个箭头，但不超过总点数的1/10
-        arrow_step = max(1, min(50, len(positions_array) // 10))
+        # 使用全局配置参数
+        arrow_step = max(1, min(ARROW_STEP_MIN, len(positions_array) // ARROW_STEP_RATIO))
         
-        # 使用统一的中间蓝色
+        # 使用统一的中间色
         arrow_color = color
         
         for i in range(0, len(positions_array) - 1, arrow_step):
@@ -256,16 +351,21 @@ class NavigationVisualizer:
                 dy = positions_array[i+1][1] - positions_array[i][1]
                 
                 if abs(dx) > 0.01 or abs(dy) > 0.01:  # 避免零向量
-                    # 绘制箭头
+                    # 绘制箭头（使用全局配置参数）
                     ax.arrow(positions_array[i][0], positions_array[i][1],
-                            dx, dy, head_width=0.2, head_length=0.3,
-                            fc=arrow_color, ec=arrow_color, alpha=alpha,
-                            length_includes_head=True, zorder=4)
+                            dx, dy, 
+                            head_width=ARROW_HEAD_WIDTH, 
+                            head_length=ARROW_HEAD_LENGTH,
+                            fc=arrow_color, ec=arrow_color, 
+                            alpha=alpha,
+                            length_includes_head=True, 
+                            zorder=ARROW_ZORDER)
     
     def plot_time_gradient_circles(self, ax, positions, timestamps, 
-                                 color='red', alpha_range=(0.2, 1.0)):
+                                 color='red', 
+                                 alpha_range=(STAY_CIRCLE_ALPHA_MIN, STAY_CIRCLE_ALPHA_MAX)):
         """绘制时间渐变的圆圈（表示停留时间）"""
-        if len(positions) < 2:
+        if len(positions) < STAY_MIN_POINTS:
             return
         
         positions_array = np.array(positions)
@@ -277,14 +377,14 @@ class NavigationVisualizer:
             
             # 找到长时间停留的点
             for i in range(len(time_diffs)):
-                if time_diffs[i] > avg_time_diff * 2:  # 停留时间超过平均值的2倍
+                if time_diffs[i] > avg_time_diff * STAY_TIME_THRESHOLD:  # 停留时间超过平均值的2倍
                     # 根据停留时间计算圆圈大小和透明度
-                    size_factor = min(time_diffs[i] / avg_time_diff, 5.0)
+                    size_factor = min(time_diffs[i] / avg_time_diff, STAY_SIZE_MAX)
                     radius = 0.1 * size_factor
                     alpha = alpha_range[0] + (alpha_range[1] - alpha_range[0]) * (1 - 1/size_factor)
                     
                     circle = plt.Circle(positions_array[i], radius, 
-                                       color=color, alpha=alpha, zorder=2,
+                                       color=color, alpha=alpha, zorder=STAY_CIRCLE_ZORDER,
                                        fill=True, linewidth=0)
                     ax.add_patch(circle)
     
@@ -305,13 +405,13 @@ class NavigationVisualizer:
         if len(self.robot_positions) > 1:
             robot_proxy, robot_label = self.plot_gradient_trajectory(
                 ax, self.robot_positions, self.robot_timestamps,
-                cmap_name='robot_path', linewidth_range=(2.0, 6.0),
-                alpha=0.9, zorder=5, label="机器人轨迹（时间渐变）"
+                cmap_name='robot_path', linewidth_range=(TRAJ_ROBOT_LINEWIDTH_MIN, TRAJ_ROBOT_LINEWIDTH_MAX),
+                alpha=TRAJ_ROBOT_ALPHA, zorder=TRAJ_ROBOT_ZORDER, label="机器人轨迹（时间渐变）"
             )
             
             # 绘制机器人方向箭头
             self.plot_direction_arrows(ax, self.robot_positions, 
-                                      self.robot_timestamps, color='blue', alpha=0.6)
+                                      self.robot_timestamps, color=ARROW_ROBOT_COLOR, alpha=ARROW_ROBOT_ALPHA)
         
         # 2. 绘制机器人起点和终点（特殊标记）
         if self.robot_positions:
@@ -319,20 +419,20 @@ class NavigationVisualizer:
             end_pos = self.robot_positions[-1]
             
             # 起点（绿色大圆）
-            ax.plot(start_pos[0], start_pos[1], 'o', markersize=25,
-                   color='#2ecc71', markeredgecolor='black', 
-                   markeredgewidth=3, zorder=10, label='起点')
-            ax.text(start_pos[0], start_pos[1] - 0.4, '起点', 
-                   fontsize=12, ha='center', va='top', fontweight='bold',
-                   bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.8))
+            ax.plot(start_pos[0], start_pos[1], 'o', markersize=ROBOT_POINT_MARKERSIZE,
+                   color=ROBOT_START_COLOR, markeredgecolor=ICON_EDGE_COLOR, 
+                   markeredgewidth=ICON_EDGE_WIDTH, zorder=ROBOT_POINT_ZORDER, label='起点')
+            ax.text(start_pos[0]+ DATA_LABEL_OFFSET_X, start_pos[1] + DATA_LABEL_OFFSET_Y, '起点', 
+                   fontsize=DATA_LABEL_FONTSIZE, ha='center', va='top', fontweight='bold', zorder = DATA_LABEL_ZORDER,
+                   bbox=dict(boxstyle=DATA_LABEL_BOXSTYLE, pad=DATA_LABEL_BOXPAD, facecolor=DATA_LABEL_BOXCOLOR, alpha=DATA_LABEL_BOXALPHA))
             
             # 终点（红色大圆）
-            ax.plot(end_pos[0], end_pos[1], 'o', markersize=25,
-                   color='#e74c3c', markeredgecolor='black',
-                   markeredgewidth=3, zorder=10, label='终点')
-            ax.text(end_pos[0], end_pos[1] - 0.4, '终点',
-                   fontsize=12, ha='center', va='top', fontweight='bold',
-                   bbox=dict(boxstyle="round,pad=0.3", facecolor='white', alpha=0.8))
+            ax.plot(end_pos[0], end_pos[1], 'o', markersize=ROBOT_POINT_MARKERSIZE,
+                   color=ROBOT_END_COLOR, markeredgecolor=ICON_EDGE_COLOR,
+                   markeredgewidth=ICON_EDGE_WIDTH, zorder=ROBOT_POINT_ZORDER, label='终点')
+            ax.text(end_pos[0]+ DATA_LABEL_OFFSET_X, end_pos[1] + DATA_LABEL_OFFSET_Y, '终点',
+                   fontsize=DATA_LABEL_FONTSIZE, ha='center', va='top', fontweight='bold', zorder = DATA_LABEL_ZORDER,
+                   bbox=dict(boxstyle=DATA_LABEL_BOXSTYLE, pad=DATA_LABEL_BOXPAD, facecolor=DATA_LABEL_BOXCOLOR, alpha=DATA_LABEL_BOXALPHA))
         
         # 3. 绘制障碍物渐变轨迹
         obstacle_proxies = []
@@ -343,30 +443,37 @@ class NavigationVisualizer:
                 timestamps = self.obstacle_timestamps[obs_id]
                 
                 # 判断障碍物是否往返运动
-                is_reciprocating = self.detect_reciprocating_motion(positions)
+                # is_reciprocating = self.detect_reciprocating_motion(positions)
                 
-                if is_reciprocating:
-                    # 往返运动使用方向颜色映射
-                    proxy, label = self.plot_gradient_trajectory(
-                        ax, positions, timestamps,
-                        cmap_name='direction_path', linewidth_range=(1.5, 4.0),
-                        alpha=0.7, zorder=4, 
-                        label=f"障碍物{i+1}轨迹（往返运动）"
-                    )
-                else:
-                    # 单向运动使用时间颜色映射
-                    proxy, label = self.plot_gradient_trajectory(
-                        ax, positions, timestamps,
-                        cmap_name='obstacle_path', linewidth_range=(1.5, 8.0),
-                        alpha=0.7, zorder=4, 
-                        label=f"障碍物{i+1}轨迹（时间渐变）"
-                    )
-                
+                # if is_reciprocating:
+                #     # 往返运动使用方向颜色映射
+                #     proxy, label = self.plot_gradient_trajectory(
+                #         ax, positions, timestamps,
+                #         cmap_name='direction_path', linewidth_range=(1.5, 4.0),
+                #         alpha=0.7, zorder=4, 
+                #         label=f"障碍物{i+1}轨迹（往返运动）"
+                #     )
+                # else:
+                #     # 单向运动使用时间颜色映射
+                #     proxy, label = self.plot_gradient_trajectory(
+                #         ax, positions, timestamps,
+                #         cmap_name='obstacle_path', linewidth_range=(1.5, 8.0),
+                #         alpha=0.7, zorder=4, 
+                #         label=f"障碍物{i+1}轨迹（时间渐变）"
+                #     )
+                # 单向运动使用时间颜色映射
+                proxy, label = self.plot_gradient_trajectory(
+                    ax, positions, timestamps,
+                    cmap_name='obstacle_path', linewidth_range=(TRAJ_OBS_LINEWIDTH_MIN, TRAJ_OBS_LINEWIDTH_MAX),
+                    alpha=TRAJ_OBS_ALPHA, zorder=TRAJ_OBS_ZORDER, 
+                    label=f"障碍物{i+1}轨迹（时间渐变）"
+                )
+
                 obstacle_proxies.append((proxy, label))
                 
                 # 绘制障碍物方向箭头
                 self.plot_direction_arrows(ax, positions, timestamps, 
-                                          color='red', alpha=0.5)
+                                          color=ARROW_OBS_COLOR, alpha=ARROW_OBS_ALPHA)
                 
                 # 绘制时间渐变圆圈（显示停留时间）
                 self.plot_time_gradient_circles(ax, positions, timestamps,
@@ -375,9 +482,9 @@ class NavigationVisualizer:
                 # 绘制障碍物当前位置
                 if positions:
                     current_pos = positions[-1]
-                    ax.plot(current_pos[0], current_pos[1], 's', markersize=20,
-                           color='#e74c3c', markeredgecolor='black',
-                           markeredgewidth=2, zorder=6, 
+                    ax.plot(current_pos[0], current_pos[1], 's', markersize=OBS_POINT_MARKERSIZE,
+                           color=OBS_POINT_COLOR, markeredgecolor=ICON_EDGE_COLOR,
+                           markeredgewidth=ICON_EDGE_WIDTH, zorder=OBS_POINT_ZORDER, 
                            label=f'障碍物{i+1}当前位置' if i == 0 else "")
         
         # 4. 绘制目标点
@@ -387,45 +494,32 @@ class NavigationVisualizer:
         
         for i, target in enumerate(target_points):
             # 绘制目标点（紫色星星）
-            ax.plot(target[0], target[1], '*', markersize=35,
-                   color='#9b59b6', markeredgecolor='black',
-                   markeredgewidth=2, zorder=9,
+            ax.plot(target[0], target[1], '*', markersize=TARGET_POINT_MARKERSIZE,
+                   color=TARGET_POINT_COLOR, markeredgecolor=ICON_EDGE_COLOR,
+                   markeredgewidth=ICON_EDGE_WIDTH, zorder=TARGET_POINT_ZORDER,
                    label=f'目标点{i+1}' if i == 0 else "")
             
             # 添加目标点标签
-            ax.text(target[0], target[1] + 0.5, f'目标{i+1}',
-                   fontsize=11, ha='center', va='bottom', fontweight='bold',
-                   bbox=dict(boxstyle="round,pad=0.3", facecolor='white', 
-                           edgecolor='#9b59b6', alpha=0.9))
-        
-        # 5. 添加时间刻度条（颜色条）
-        if len(self.robot_positions) > 1:
-            # 创建颜色条
-            sm = plt.cm.ScalarMappable(cmap=self.robot_cmap, 
-                                      norm=plt.Normalize(0, 1))
-            sm.set_array([])
-            
-            # 添加颜色条
-            cbar = plt.colorbar(sm, ax=ax, orientation='vertical', 
-                               fraction=0.03, pad=0.02)
-            cbar.set_label('时间（相对）', fontsize=12)
-            cbar.ax.tick_params(labelsize=10)
+            ax.text(target[0] + DATA_LABEL_OFFSET_X, target[1] + DATA_LABEL_OFFSET_Y, f'目标{i+1}',
+                   fontsize=DATA_LABEL_FONTSIZE, ha='center', va='bottom', fontweight='bold', zorder = DATA_LABEL_ZORDER,
+                   bbox=dict(boxstyle=DATA_LABEL_BOXSTYLE ,pad=DATA_LABEL_BOXPAD, facecolor=DATA_LABEL_BOXCOLOR, 
+                            alpha=DATA_LABEL_BOXALPHA))
         
         # 6. 设置图形属性
-        ax.set_xlabel('X坐标 (米)', fontsize=14, fontweight='bold')
-        ax.set_ylabel('Y坐标 (米)', fontsize=14, fontweight='bold')
-        ax.set_title('机器人导航轨迹图 - 时间渐变可视化', 
-                    fontsize=16, fontweight='bold', pad=20)
+        ax.set_xlabel(FIG_X_LABEL_CONTENT, fontsize=FIG_XY_FONTSIZE, fontweight='bold')
+        ax.set_ylabel(FIG_Y_LABEL_CONTENT, fontsize=FIG_XY_FONTSIZE, fontweight='bold')
+        ax.set_title(FIG_TITLE_CONTENT, 
+                    fontsize=FIG_TITLE_FONTSIZE, fontweight='bold', pad=FIG_TITLE_PAD)
         
-        ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
-        ax.set_xlim(0, 10)
-        ax.set_ylim(0, 10)
-        ax.set_xticks(range(0, 11, 2))
-        ax.set_yticks(range(0, 11, 2))
+        # ax.grid(GRID_VISIBLE, alpha=GRID_LINE_ALPHA, linestyle=GRID_LINE_STYLE, linewidth=GRID_LINE_WIDTH)
+        ax.set_xlim(FIG_XY_LIM_MIN, FIG_XY_LIM_MAX)
+        ax.set_ylim(FIG_XY_LIM_MIN, FIG_XY_LIM_MAX)
+        ax.set_xticks(range(FIG_XY_TICKS_MIN, FIG_XY_TICKS_MAX, FIG_XY_TICK))
+        ax.set_yticks(range(FIG_XY_TICKS_MIN, FIG_XY_TICKS_MAX, FIG_XY_TICK))
         
         # 添加坐标网格
-        ax.grid(True, which='major', alpha=0.4, linestyle='-', linewidth=0.5)
-        ax.grid(True, which='minor', alpha=0.2, linestyle=':', linewidth=0.5)
+        ax.grid(GRID_MAJOR_VISIBLE, which='major', alpha=GRID_MAJOR_LINE_ALPHA, linestyle=GRID_MAJOR_LINE_STYLE, linewidth=GRID_MAJOR_LINE_WIDTH)
+        ax.grid(GRID_MINOR_VISIBLE, which='minor', alpha=GRID_MINOR_LINE_ALPHA, linestyle=GRID_MINOR_LINE_STYLE, linewidth=GRID_MINOR_LINE_WIDTH)
         ax.minorticks_on()
         
         # 7. 创建图例
@@ -486,22 +580,22 @@ class NavigationVisualizer:
         
         ax.set_aspect('equal')
         
-        # 8. 添加信息文本框
-        info_text = f"""
-轨迹信息:
-• 机器人轨迹点数: {len(self.robot_positions)}
-• 轨迹总时长: {self.robot_timestamps[-1] - self.robot_timestamps[0]:.1f}s
-• 障碍物数量: {len(self.obstacles_ids)}
-• 可视化说明:
-  线宽渐变: 细→粗表示时间推进
-  颜色渐变: 浅→深表示时间推进
-  箭头方向: 表示瞬时运动方向
-  圆圈大小: 表示停留时间长短
-"""
-        ax.text(0.02, 0.98, info_text, transform=ax.transAxes,
-               fontsize=10, verticalalignment='top',
-               bbox=dict(boxstyle="round,pad=0.5", facecolor='white', 
-                       alpha=0.9, edgecolor='gray'))
+#         # 8. 添加信息文本框
+#         info_text = f"""
+# 轨迹信息:
+# • 机器人轨迹点数: {len(self.robot_positions)}
+# • 轨迹总时长: {self.robot_timestamps[-1] - self.robot_timestamps[0]:.1f}s
+# • 障碍物数量: {len(self.obstacles_ids)}
+# • 可视化说明:
+#   线宽渐变: 细→粗表示时间推进
+#   颜色渐变: 浅→深表示时间推进
+#   箭头方向: 表示瞬时运动方向
+#   圆圈大小: 表示停留时间长短
+# """
+#         ax.text(0.02, 0.98, info_text, transform=ax.transAxes,
+#                fontsize=10, verticalalignment='top',
+#                bbox=dict(boxstyle="round,pad=0.5", facecolor='white', 
+#                        alpha=0.9, edgecolor='gray'))
         
         # 保存图片
         plt.tight_layout()
