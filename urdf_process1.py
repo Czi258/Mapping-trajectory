@@ -1187,6 +1187,11 @@ def demo_urdf_projection():
     print(f"所有投影图像已保存到: {output_dir}/")
     print("=" * 60)
    
+def test_PB_URDF_projection():
+    """"测试PyBullet URDF投影各项功能"""
+
+
+
 
 if __name__ == "__main__":
     demo_urdf_projection()
