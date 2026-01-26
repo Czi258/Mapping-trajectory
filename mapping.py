@@ -10,6 +10,7 @@ from matplotlib.colors import LinearSegmentedColormap, ListedColormap
 import os
 import matplotlib
 
+import 
 
 # ========== 全局可视化配置 ==========
 # 一、箭头参数
@@ -606,38 +607,38 @@ class NavigationVisualizer:
         print(f"✓ 增强版轨迹图已保存为: {filepath}")
         print(f"  时间渐变可视化已启用")
 
-    def detect_reciprocating_motion(self, positions, threshold=0.3):
-        """检测是否往返运动"""
-        if len(positions) < 10:
-            return False
+    # def detect_reciprocating_motion(self, positions, threshold=0.3):
+    #     """检测是否往返运动"""
+    #     if len(positions) < 10:
+    #         return False
         
-        positions_array = np.array(positions)
+    #     positions_array = np.array(positions)
         
-        # 计算移动方向的变化
-        directions = []
-        for i in range(1, len(positions_array)):
-            dx = positions_array[i][0] - positions_array[i-1][0]
-            dy = positions_array[i][1] - positions_array[i-1][1]
-            if abs(dx) > 0.01 or abs(dy) > 0.01:
-                direction = math.atan2(dy, dx)
-                directions.append(direction)
+    #     # 计算移动方向的变化
+    #     directions = []
+    #     for i in range(1, len(positions_array)):
+    #         dx = positions_array[i][0] - positions_array[i-1][0]
+    #         dy = positions_array[i][1] - positions_array[i-1][1]
+    #         if abs(dx) > 0.01 or abs(dy) > 0.01:
+    #             direction = math.atan2(dy, dx)
+    #             directions.append(direction)
         
-        if len(directions) < 5:
-            return False
+    #     if len(directions) < 5:
+    #         return False
         
-        # 计算方向变化率
-        direction_changes = 0
-        for i in range(1, len(directions)):
-            # 计算方向角度差（考虑圆周）
-            diff = abs(directions[i] - directions[i-1])
-            if diff > math.pi:
-                diff = 2 * math.pi - diff
+    #     # 计算方向变化率
+    #     direction_changes = 0
+    #     for i in range(1, len(directions)):
+    #         # 计算方向角度差（考虑圆周）
+    #         diff = abs(directions[i] - directions[i-1])
+    #         if diff > math.pi:
+    #             diff = 2 * math.pi - diff
             
-            if diff > math.pi/2:  # 方向变化超过90度
-                direction_changes += 1
+    #         if diff > math.pi/2:  # 方向变化超过90度
+    #             direction_changes += 1
         
-        # 如果方向变化频繁，可能是往返运动
-        return direction_changes / len(directions) > threshold
+    #     # 如果方向变化频繁，可能是往返运动
+    #     return direction_changes / len(directions) > threshold
 
 
 
@@ -670,11 +671,11 @@ def create_simulation_environment():
     
     # 静态障碍物（球体）
     static_obstacle_positions = [
-        [3, 3, 0.5],
-        [7, 3, 0.5],
-        [5, 5, 0.5],
-        [3, 7, 0.5],
-        [7, 7, 0.5]
+        [3, 3, 1.5],
+        [7, 3, 1.5],
+        [5, 5, 1.5],
+        [3, 7, 1.5],
+        [7, 7, 1.5]
     ]
     
     for pos in static_obstacle_positions:

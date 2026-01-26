@@ -73,7 +73,7 @@ class URDFReader:
             print(f"Error reading STL file {stl_file}: {e}")
             return {}
     
-    def read_prisms_from_info_file(self, info_file="prisms_info.txt"):
+    def read_prisms_from_info_file(self, info_file="urdf/prisms_info.txt"):
         """从信息文件读取所有棱柱信息"""
         prisms = []
         current_prism = None
@@ -157,7 +157,7 @@ class URDFReader:
         print(f"Successfully read {len(prisms)} prisms from {info_file}")
         return prisms
     
-    def save_to_json(self, prisms_info, output_file="prisms_data.json"):
+    def save_to_json(self, prisms_info, output_file="urdf/prisms_data.json"):
         """保存信息到JSON文件"""
         with open(output_file, 'w') as f:
             json.dump(prisms_info, f, indent=2)
@@ -183,7 +183,7 @@ if __name__ == "__main__":
     reader = URDFReader()
     
     # 检查文件是否存在
-    info_file = "prisms_info.txt"
+    info_file = "urdf/prisms_info.txt"
     if os.path.exists(info_file):
         # 从信息文件读取
         prisms = reader.read_prisms_from_info_file(info_file)
@@ -218,6 +218,6 @@ if __name__ == "__main__":
                     print(f"  Read: {urdf_file}")
                 
                 if prisms:
-                    reader.save_to_json(prisms, "urdf_info.json")
+                    reader.save_to_json(prisms, "urdf/urdf_info.json")
             else:
                 print("No URDF files found.")

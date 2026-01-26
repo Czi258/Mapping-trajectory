@@ -7,7 +7,7 @@
         <mesh filename="quad_prism_1.stl"/>
       </geometry>
       <material name="color">
-        <color rgba="0.01935120075789265 0.14161691333832294 0.8060522971691297 1.0"/>
+        <color rgba="0.8960682479159273 0.4735215105209277 0.7611525649263471 1.0"/>
       </material>
     </visual>
     <collision>
