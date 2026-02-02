@@ -9,8 +9,9 @@ from matplotlib.collections import LineCollection
 from matplotlib.colors import LinearSegmentedColormap, ListedColormap
 import os
 import matplotlib
+import random
 
-import 
+from urdf_reader import URDFReader
 
 # ========== 全局可视化配置 ==========
 # 一、箭头参数
@@ -640,6 +641,171 @@ class NavigationVisualizer:
     #     # 如果方向变化频繁，可能是往返运动
     #     return direction_changes / len(directions) > threshold
 
+class SimulationEnvironment:
+    def __init__(self, gui=True, gravity=9.8):
+        """"初始化仿真环境"""
+        # 连接物理引擎
+        if gui:
+            self.physicsClient = p.connect(p.GUI)
+        else:
+            self.physicsClient = p.connect(p.DIRECT)
+
+        # 设置参数
+        p.setGravity(0, 0, gravity)
+        p.setTimeStep(1/240.0)
+        p.setAdditionalSearchPath(pybullet_data.getDataPath())
+        p.setRealTimeSimulation(0)
+
+        # 设置摄像头
+        p.resetDebugVisualizerCamera(
+            cameraDistance=5,
+            cameraYaw=45,
+            cameraPitch=-30,
+            cameraTargetPosition=[0, 0, 0]
+        )
+
+        planeId = p.loadURDF("plane.urdf")
+        
+        self.prisms = []
+
+    def load_prism(self, urdf_file, position=[0, 0, 0],
+                orientation=[0, 0, 0, 1], scale=1.0):
+        """"加载棱柱模型"""
+        urdf_path = urdf_file
+
+        prism_id = p.loadURDF(
+            urdf_path,
+            basePosition=position,
+            baseOrientation=orientation,
+            globalScaling=scale,
+            flags=p.URDF_USE_INERTIA_FROM_FILE
+        )
+
+        self.prisms.append({
+            'id': prism_id,
+            'urdf_file': urdf_file,
+            'position': position,
+            'orientation': orientation
+        })
+
+        return prism_id
+
+    def random_place_prisms(self, prisms_info, num_prisms=None,
+                            limits_x=[-5, 5], limits_y=[-5, 5]):
+        """随机放置模型"""
+        if num_prisms is None:
+            num_prisms = len(prisms_info)
+
+        placed_prisms = []
+        obstacle_ids = []
+
+        for i in range(min(num_prisms, len(prisms_info))):
+            info = prisms_info[i]
+
+            # 随机分布位置，后采用泊松分布确保不重叠
+            max_attempts = 100
+            placed_completed = False
+
+            for attempt in range(max_attempts):
+                # 随机位置
+                x = random.uniform(limits_x[0], limits_x[1])
+                y = random.uniform(limits_y[0], limits_y[1])
+
+                # 随机绕z轴旋转
+                angle = random.uniform(0, 2 * math.pi)
+                orientation = p.getQuaternionFromEuler([0, 0, angle])
+
+                # 高度
+                height = info.get('height', 1.0)
+                position = [x, y, height / 2.0+ 0.01]
+
+                # 检查是否有重叠
+                overlap = False
+                for prism in placed_prisms:
+                    dx = prism['position'][0] - x
+                    dy = prism['position'][1] - y
+                    distance = np.sqrt(dx*dx + dy*dy)
+                    if distance < 2.0:  # 安全距离
+                        overlap = True
+                        break
+                
+                if not overlap:
+                    # 加载模型
+                    prism_id = self.load_prism(
+                        info['urdf_file'],
+                        position=position,
+                        orientation=orientation
+                    )
+
+                    placed_prisms.append({
+                        'id': prism_id,
+                        'info':info,
+                        'position': position,
+                        'orientation': orientation,
+                        'angle_z': angle
+                    })
+
+                    # 将ID和x,y位置添加到idandxy中去
+                    obstacle_ids.append(prism_id)
+
+                    placed_completed = True
+                    break
+
+            if not placed_completed:
+                print(f"⚠️ 未能成功放置模型: {info['name']}，请检查空间限制。")
+
+        return placed_prisms, obstacle_ids
+    
+    def movement_setup(self, placed_prisms):
+        """设置动态障碍物以及运动参数"""
+        dynamic_obstacles_info = []
+        straight_moving_ids = [3,4]
+        circle_moving_ids = [5,6]
+        polyline_moving_ids = [7,8]
+
+        # 障碍物1: 简单直线往返
+        for ids in  straight_moving_ids:
+            obstacle_start = placed_prisms[ids]['position']
+            obstacle_end = [obstacle_start[0], obstacle_start[1] + 3, obstacle_start[2]]    # 暂时
+
+            dynamic_obstacles_info.append({
+                'id': placed_prisms[ids]['id'],
+                'start_pos': obstacle_start,
+                'end_pos': obstacle_end,
+                'direction': 1,
+                'speed': 0.02
+            })            
+
+        # 障碍物2: 圆形运动
+        for ids in circle_moving_ids:
+            obstacle_center = placed_prisms[ids]['position']
+            obstacle_radius = 2.0
+            dynamic_obstacles_info.append({
+                'id': placed_prisms[ids]['id'],
+                'type': 'circular',
+                'center': obstacle_center,
+                'radius': obstacle_radius,
+                'angle': 0,
+                'speed': 0.02
+            })
+
+        # 障碍物3: 复杂折线运动
+        for ids in polyline_moving_ids:
+            obstacle_waypoints = [
+                [placed_prisms[ids]['position'][0], placed_prisms[ids]['position'][1], placed_prisms[ids]['position'][2]],
+                [placed_prisms[ids]['position'][0] + 3, placed_prisms[ids]['position'][1], placed_prisms[ids]['position'][2]],
+                [placed_prisms[ids]['position'][0] + 3, placed_prisms[ids]['position'][1] + 3, placed_prisms[ids]['position'][2]],
+                [placed_prisms[ids]['position'][0], placed_prisms[ids]['position'][1], placed_prisms[ids]['position'][2]]
+            ]
+            dynamic_obstacles_info.append({
+                'id': placed_prisms[ids]['id'],
+                'type': 'waypoints',
+                'waypoints': obstacle_waypoints,
+                'current_waypoint': 0,
+                'speed': 0.02
+            })
+
+        return dynamic_obstacles_info
 
 
 def create_simulation_environment():
@@ -743,8 +909,19 @@ def create_simulation_environment():
     
     return robot_id, obstacles, dynamic_obstacles_info
 
+
+
+
+
 def main():
-    """主函数 - 修复版本"""
+    """主函数"""
+    # 读取模型信息
+    reader = URDFReader()
+    prisms_info = reader.read_prisms_from_info_file()
+    # 创建仿真环境
+    env = SimulationEnvironment(gui=True, gravity=9.8)
+    env.random_place_prisms()
+
     # 创建仿真环境
     robot_id, obstacles, dynamic_obstacles_info = create_simulation_environment()
     
