@@ -7,6 +7,7 @@ import math
 from matplotlib.animation import FuncAnimation
 from matplotlib.collections import LineCollection
 from matplotlib.colors import LinearSegmentedColormap, ListedColormap
+from matplotlib.patches import Polygon
 import os
 import matplotlib
 import random
@@ -392,7 +393,7 @@ class NavigationVisualizer:
     
 
 
-    def save_trajectory_plot(self, filename="trajectory_plot.png", dpi=300, output_dir="./results"):
+    def save_trajectory_plot(self, filename="trajectory_plot.png", dpi=300, output_dir="./results", prisms_data=None):
         """保存增强版轨迹图"""
         os.makedirs(output_dir, exist_ok=True)
         filepath = os.path.join(output_dir, filename)
@@ -438,31 +439,12 @@ class NavigationVisualizer:
         
         # 3. 绘制障碍物渐变轨迹
         obstacle_proxies = []
-        for i, obs_id in enumerate(self.obstacles_ids):
+        for i, (prism_info, obs_id) in enumerate(prisms_data, self.obstacles_ids):
             if len(self.obstacle_positions[obs_id]) > 1:
                 # 计算障碍物运动方向（用于选择颜色映射）
                 positions = self.obstacle_positions[obs_id]
                 timestamps = self.obstacle_timestamps[obs_id]
                 
-                # 判断障碍物是否往返运动
-                # is_reciprocating = self.detect_reciprocating_motion(positions)
-                
-                # if is_reciprocating:
-                #     # 往返运动使用方向颜色映射
-                #     proxy, label = self.plot_gradient_trajectory(
-                #         ax, positions, timestamps,
-                #         cmap_name='direction_path', linewidth_range=(1.5, 4.0),
-                #         alpha=0.7, zorder=4, 
-                #         label=f"障碍物{i+1}轨迹（往返运动）"
-                #     )
-                # else:
-                #     # 单向运动使用时间颜色映射
-                #     proxy, label = self.plot_gradient_trajectory(
-                #         ax, positions, timestamps,
-                #         cmap_name='obstacle_path', linewidth_range=(1.5, 8.0),
-                #         alpha=0.7, zorder=4, 
-                #         label=f"障碍物{i+1}轨迹（时间渐变）"
-                #     )
                 # 单向运动使用时间颜色映射
                 proxy, label = self.plot_gradient_trajectory(
                     ax, positions, timestamps,
@@ -484,6 +466,11 @@ class NavigationVisualizer:
                 # 绘制障碍物当前位置
                 if positions:
                     current_pos = positions[-1]
+                    base_points = prism_info['base_points']
+                    angle_z = obs_id.get('z_angle', 0)
+                    
+                    
+                    
                     ax.plot(current_pos[0], current_pos[1], 's', markersize=OBS_POINT_MARKERSIZE,
                            color=OBS_POINT_COLOR, markeredgecolor=ICON_EDGE_COLOR,
                            markeredgewidth=ICON_EDGE_WIDTH, zorder=OBS_POINT_ZORDER, 
@@ -608,38 +595,51 @@ class NavigationVisualizer:
         print(f"✓ 增强版轨迹图已保存为: {filepath}")
         print(f"  时间渐变可视化已启用")
 
-    # def detect_reciprocating_motion(self, positions, threshold=0.3):
-    #     """检测是否往返运动"""
-    #     if len(positions) < 10:
-    #         return False
+
+
+    def get_base_projection(self, base_points, angle_z=0, scale=1.0):
+        """获取底面的2D投影（考虑旋转）"""
+        # 转换为numpy数组
+        points = np.array(base_points)
         
-    #     positions_array = np.array(positions)
+        # 应用Z轴旋转
+        if angle_z != 0:
+            rot_matrix = np.array([
+                [math.cos(angle_z), -math.sin(angle_z)],
+                [math.sin(angle_z), math.cos(angle_z)]
+            ])
+            points = np.dot(points, rot_matrix.T)
         
-    #     # 计算移动方向的变化
-    #     directions = []
-    #     for i in range(1, len(positions_array)):
-    #         dx = positions_array[i][0] - positions_array[i-1][0]
-    #         dy = positions_array[i][1] - positions_array[i-1][1]
-    #         if abs(dx) > 0.01 or abs(dy) > 0.01:
-    #             direction = math.atan2(dy, dx)
-    #             directions.append(direction)
+        # 应用缩放
+        points = points * scale
         
-    #     if len(directions) < 5:
-    #         return False
+        return points
+    
+
+    def create_projection_patch(self, base_points, position, angle_z=0, 
+                               color=None, alpha=0.7, scale=1.0):
+        """创建投影的多边形补丁"""
+        # 获取旋转后的底面投影
+        projected_points = self.get_base_projection(base_points, angle_z, scale)
         
-    #     # 计算方向变化率
-    #     direction_changes = 0
-    #     for i in range(1, len(directions)):
-    #         # 计算方向角度差（考虑圆周）
-    #         diff = abs(directions[i] - directions[i-1])
-    #         if diff > math.pi:
-    #             diff = 2 * math.pi - diff
-            
-    #         if diff > math.pi/2:  # 方向变化超过90度
-    #             direction_changes += 1
+        # 应用位置偏移
+        center = np.array([position[0], position[1]])
+        translated_points = projected_points + center
         
-    #     # 如果方向变化频繁，可能是往返运动
-    #     return direction_changes / len(directions) > threshold
+        # 创建多边形补丁
+        if color is None:
+            color = np.random.rand(3)
+        
+        polygon = Polygon(
+            translated_points,
+            closed=True,
+            edgecolor=color,
+            facecolor=color + (1 - np.array(color)) * 0.3,  # 使填充色稍浅
+            alpha=alpha,
+            linewidth=2
+        )
+        
+        return polygon
 
 class SimulationEnvironment:
     def __init__(self, gui=True, gravity=9.8):
@@ -663,6 +663,18 @@ class SimulationEnvironment:
             cameraPitch=-30,
             cameraTargetPosition=[0, 0, 0]
         )
+        
+        # 创建机器人（使用立方体代替机器人，确保显示正确）
+        robot_start_pos = [1, 1, 0.5]
+        # 创建简单的立方体作为机器人
+        robot_shape = p.createCollisionShape(p.GEOM_BOX, halfExtents=[0.3, 0.3, 0.3])
+        self.robot_id = p.createMultiBody(baseMass=1.0,
+                                    baseCollisionShapeIndex=robot_shape,
+                                    basePosition=robot_start_pos)
+        
+        # 设置机器人颜色为蓝色
+        p.changeVisualShape(self.robot_id, -1, rgbaColor=[0, 0, 1, 1])
+
 
         planeId = p.loadURDF("plane.urdf")
         
@@ -697,7 +709,7 @@ class SimulationEnvironment:
             num_prisms = len(prisms_info)
 
         placed_prisms = []
-        obstacle_ids = []
+        robot_id = self.robot_id
 
         for i in range(min(num_prisms, len(prisms_info))):
             info = prisms_info[i]
@@ -745,8 +757,6 @@ class SimulationEnvironment:
                         'angle_z': angle
                     })
 
-                    # 将ID和x,y位置添加到idandxy中去
-                    obstacle_ids.append(prism_id)
 
                     placed_completed = True
                     break
@@ -754,7 +764,7 @@ class SimulationEnvironment:
             if not placed_completed:
                 print(f"⚠️ 未能成功放置模型: {info['name']}，请检查空间限制。")
 
-        return placed_prisms, obstacle_ids
+        return placed_prisms, robot_id
     
     def movement_setup(self, placed_prisms):
         """设置动态障碍物以及运动参数"""
@@ -920,13 +930,14 @@ def main():
     prisms_info = reader.read_prisms_from_info_file()
     # 创建仿真环境
     env = SimulationEnvironment(gui=True, gravity=9.8)
-    env.random_place_prisms()
+    placed_prisms, robot_id = env.random_place_prisms(prisms_info=prisms_info, num_prisms=10,limits_x=[-10,10], limits_y=[-10,10])
+    dynamic_obs_info = env.movement_setup(placed_prisms)
 
     # 创建仿真环境
-    robot_id, obstacles, dynamic_obstacles_info = create_simulation_environment()
+    # robot_id, obstacles, dynamic_obstacles_info = create_simulation_environment()
     
     # 创建可视化器
-    visualizer = NavigationVisualizer(robot_id, obstacles, dynamic_obstacles_info)
+    visualizer = NavigationVisualizer(robot_id, placed_prisms, dynamic_obs_info)
     
     # 设置目标点序列
     target_points = [
@@ -994,7 +1005,7 @@ def main():
                 break
             
             # 动态障碍物控制
-            for obs_info in dynamic_obstacles_info:
+            for obs_info in dynamic_obs_info:
                 obs_id = obs_info['id']
                 current_pos, current_orn = p.getBasePositionAndOrientation(obs_id)
                 
