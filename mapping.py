@@ -6,11 +6,13 @@ import time
 import math
 from matplotlib.animation import FuncAnimation
 from matplotlib.collections import LineCollection
+from matplotlib.collections import PatchCollection
 from matplotlib.colors import LinearSegmentedColormap, ListedColormap
 from matplotlib.patches import Polygon
 import os
 import matplotlib
 import random
+import traceback
 
 from urdf_reader import URDFReader
 
@@ -101,10 +103,10 @@ GRID_MINOR_VISIBLE = True   # 次网格可见性
 GRID_MINOR_LINE_ALPHA = 0.2 # 次网格线透明度
 GRID_MINOR_LINE_STYLE = ':' # 次网格线样式
 GRID_MINOR_LINE_WIDTH = 0.5 # 次网格线宽度
-FIG_XY_LIM_MIN = 0         # 坐标轴范围最小值
+FIG_XY_LIM_MIN = -10         # 坐标轴范围最小值
 FIG_XY_LIM_MAX = 10        # 坐标轴范围最大值
-FIG_XY_TICKS_MIN = 0    # 坐标轴刻度最小值
-FIG_XY_TICKS_MAX = 11   # 坐标轴刻度最大值
+FIG_XY_TICKS_MIN = -10    # 坐标轴刻度最小值
+FIG_XY_TICKS_MAX = 10   # 坐标轴刻度最大值
 FIG_XY_TICK = 2          # 坐标轴刻度间隔
 
 # ========== 中文字体设置 ==========
@@ -219,7 +221,7 @@ class NavigationVisualizer:
         self.robot_timestamps = [] # 存储机器人时间戳
         self.obstacle_positions = {oid: [] for oid in obstacles_ids}  # 存储障碍物轨迹点
         self.obstacle_timestamps = {oid: [] for oid in obstacles_ids} # 存储障碍物时间戳
-        
+
         # 创建自定义颜色映射
         self.create_custom_colormaps()
 
@@ -393,7 +395,7 @@ class NavigationVisualizer:
     
 
 
-    def save_trajectory_plot(self, filename="trajectory_plot.png", dpi=300, output_dir="./results", prisms_data=None):
+    def save_trajectory_plot(self, filename="trajectory_plot.png", dpi=300, output_dir="./results", prisms_data=None, placed_prisms=None):
         """保存增强版轨迹图"""
         os.makedirs(output_dir, exist_ok=True)
         filepath = os.path.join(output_dir, filename)
@@ -439,7 +441,8 @@ class NavigationVisualizer:
         
         # 3. 绘制障碍物渐变轨迹
         obstacle_proxies = []
-        for i, (prism_info, obs_id) in enumerate(prisms_data, self.obstacles_ids):
+        patch_list = []
+        for i, (prism_info, obs_id, prism_ori) in enumerate(zip(prisms_data, self.obstacles_ids, placed_prisms)):
             if len(self.obstacle_positions[obs_id]) > 1:
                 # 计算障碍物运动方向（用于选择颜色映射）
                 positions = self.obstacle_positions[obs_id]
@@ -467,14 +470,23 @@ class NavigationVisualizer:
                 if positions:
                     current_pos = positions[-1]
                     base_points = prism_info['base_points']
-                    angle_z = obs_id.get('z_angle', 0)
+                    angle_z = prism_ori.get('z_angle', 0)
                     
+                    # 创建投影
+                    polygon = self.create_projection_patch(
+                        base_points, current_pos, angle_z,
+                        color=OBS_POINT_COLOR, alpha=0.8, scale=1.0
+                    )
+                    patch_list.append(polygon)
+
+                    # 添加到图形中
+                    collection = PatchCollection(patch_list, match_original=True)
+                    ax.add_collection(collection)
                     
-                    
-                    ax.plot(current_pos[0], current_pos[1], 's', markersize=OBS_POINT_MARKERSIZE,
-                           color=OBS_POINT_COLOR, markeredgecolor=ICON_EDGE_COLOR,
-                           markeredgewidth=ICON_EDGE_WIDTH, zorder=OBS_POINT_ZORDER, 
-                           label=f'障碍物{i+1}当前位置' if i == 0 else "")
+                    # ax.plot(current_pos[0], current_pos[1], 's', markersize=OBS_POINT_MARKERSIZE,
+                    #        color=OBS_POINT_COLOR, markeredgecolor=ICON_EDGE_COLOR,
+                    #        markeredgewidth=ICON_EDGE_WIDTH, zorder=OBS_POINT_ZORDER, 
+                    #        label=f'障碍物{i+1}当前位置' if i == 0 else "")
         
         # 4. 绘制目标点
         target_points = [
@@ -634,7 +646,7 @@ class NavigationVisualizer:
             translated_points,
             closed=True,
             edgecolor=color,
-            facecolor=color + (1 - np.array(color)) * 0.3,  # 使填充色稍浅
+            facecolor=color,
             alpha=alpha,
             linewidth=2
         )
@@ -709,6 +721,7 @@ class SimulationEnvironment:
             num_prisms = len(prisms_info)
 
         placed_prisms = []
+        obs_ids = []
         robot_id = self.robot_id
 
         for i in range(min(num_prisms, len(prisms_info))):
@@ -756,7 +769,7 @@ class SimulationEnvironment:
                         'orientation': orientation,
                         'angle_z': angle
                     })
-
+                    obs_ids.append(prism_id)
 
                     placed_completed = True
                     break
@@ -764,7 +777,7 @@ class SimulationEnvironment:
             if not placed_completed:
                 print(f"⚠️ 未能成功放置模型: {info['name']}，请检查空间限制。")
 
-        return placed_prisms, robot_id
+        return placed_prisms, obs_ids, robot_id
     
     def movement_setup(self, placed_prisms):
         """设置动态障碍物以及运动参数"""
@@ -930,14 +943,14 @@ def main():
     prisms_info = reader.read_prisms_from_info_file()
     # 创建仿真环境
     env = SimulationEnvironment(gui=True, gravity=9.8)
-    placed_prisms, robot_id = env.random_place_prisms(prisms_info=prisms_info, num_prisms=10,limits_x=[-10,10], limits_y=[-10,10])
+    placed_prisms, obs_ids, robot_id = env.random_place_prisms(prisms_info=prisms_info, num_prisms=10,limits_x=[-10,10], limits_y=[-10,10])
     dynamic_obs_info = env.movement_setup(placed_prisms)
 
     # 创建仿真环境
     # robot_id, obstacles, dynamic_obstacles_info = create_simulation_environment()
     
     # 创建可视化器
-    visualizer = NavigationVisualizer(robot_id, placed_prisms, dynamic_obs_info)
+    visualizer = NavigationVisualizer(robot_id, obs_ids, dynamic_obs_info)
     
     # 设置目标点序列
     target_points = [
@@ -1073,11 +1086,12 @@ def main():
         
         # 保存轨迹图
         print("\n正在生成轨迹图...")
-        visualizer.save_trajectory_plot("论文用图.png", dpi=600, output_dir="paper/Pic")
+        visualizer.save_trajectory_plot("论文用图.png", dpi=600, output_dir="paper/Pic",prisms_data=prisms_info,placed_prisms=placed_prisms)
         
     except KeyboardInterrupt:
         print("仿真被用户中断")
     except Exception as e:
+        traceback.print_exc()
         print(f"仿真出错: {e}")
     finally:
         p.disconnect()

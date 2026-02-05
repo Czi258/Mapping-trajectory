@@ -1,19 +1,19 @@
 <?xml version="1.0" ?>
-<robot name="quad_prism_2">
+<robot name="quad_prism_5">
   <link name="base_link">
     <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="quad_prism_2.stl"/>
+        <mesh filename="quad_prism_5.stl"/>
       </geometry>
       <material name="color">
-        <color rgba="0.9091608291797945 0.28090634324861774 0.36700558919138493 1.0"/>
+        <color rgba="0.07380892458780897 0.13272015417511362 0.07420849977298127 1.0"/>
       </material>
     </visual>
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="quad_prism_2.stl"/>
+        <mesh filename="quad_prism_5.stl"/>
       </geometry>
     </collision>
     <inertial>

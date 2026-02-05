@@ -336,4 +336,4 @@ class QuadPrismGenerator:
 
 if __name__ == "__main__":
     generator = QuadPrismGenerator()
-    prisms = generator.generate_multiple_prisms(num_prisms=3)
+    prisms = generator.generate_multiple_prisms(num_prisms=9)
